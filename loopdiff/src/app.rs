@@ -49,6 +49,7 @@ pub(super) enum Focus {
 enum Outcome {
     Continue,
     Finish,
+    ResetWatch,
     Yank(String),
     LoadFileView(usize),
     OpenFile(String),

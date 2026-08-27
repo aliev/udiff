@@ -27,6 +27,18 @@ fn update_exposes_commands_and_effects_at_the_app_boundary() {
 }
 
 #[test]
+fn shift_r_resets_only_watch_mode() {
+    let files = || parse_unified_diff("--- a.rs\n+++ a.rs\n@@ -1 +1 @@\n-old\n+new\n");
+    let key = KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT);
+
+    let mut watching = App::new_watching(1, files());
+    assert_eq!(watching.update(Command::Key(key)), Effect::ResetWatch);
+
+    let mut static_diff = App::new(files(), Vec::new());
+    assert_eq!(static_diff.update(Command::Key(key)), Effect::None);
+}
+
+#[test]
 fn watched_batches_follow_latest_and_keep_independent_state() {
     let first = parse_unified_diff("--- first.rs\n+++ first.rs\n@@ -1 +1 @@\n-old\n+first\n");
     let second = parse_unified_diff("--- second.rs\n+++ second.rs\n@@ -1 +1 @@\n-old\n+second\n");

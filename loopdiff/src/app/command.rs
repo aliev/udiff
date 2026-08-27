@@ -20,6 +20,7 @@ pub enum Command {
 pub enum Effect {
     None,
     Quit,
+    ResetWatch,
     Copy(String),
     RequestFileView(usize),
     OpenFile(String),

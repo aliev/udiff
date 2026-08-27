@@ -27,6 +27,7 @@ pub struct TerminalRuntime;
 enum EffectOutcome {
     Continue,
     Quit,
+    ResetWatch,
 }
 
 impl TerminalRuntime {
@@ -66,7 +67,7 @@ impl TerminalRuntime {
                             } else {
                                 EffectOutcome::Continue
                             };
-                            if outcome == EffectOutcome::Quit {
+                            if apply_effect_outcome(&mut app, outcome) {
                                 break Ok(Effect::Quit);
                             }
                         }
@@ -89,6 +90,17 @@ impl TerminalRuntime {
         )?;
         terminal.show_cursor()?;
         result
+    }
+}
+
+fn apply_effect_outcome(app: &mut Option<App>, outcome: EffectOutcome) -> bool {
+    match outcome {
+        EffectOutcome::Continue => false,
+        EffectOutcome::Quit => true,
+        EffectOutcome::ResetWatch => {
+            *app = None;
+            false
+        }
     }
 }
 
@@ -146,6 +158,7 @@ fn handle_effect(
 ) -> Result<EffectOutcome> {
     match effect {
         Effect::None => {}
+        Effect::ResetWatch => return Ok(EffectOutcome::ResetWatch),
         Effect::Copy(text) => {
             write!(terminal.backend_mut(), "{}", osc52_sequence(&text))?;
             terminal.backend_mut().flush()?;
@@ -255,6 +268,22 @@ mod tests {
             .collect::<String>();
         assert!(rendered.contains("Waiting for file changes"));
         assert!(rendered.contains("q quit"));
+    }
+
+    #[test]
+    fn resetting_watch_drops_batches_and_accepts_the_next_one() {
+        let files =
+            crate::model::parse_unified_diff("--- old.rs\n+++ old.rs\n@@ -1 +1 @@\n-old\n+new\n");
+        let mut app = Some(App::new_watching(1, files));
+
+        assert!(!apply_effect_outcome(&mut app, EffectOutcome::ResetWatch));
+        assert!(app.is_none());
+
+        let files = crate::model::parse_unified_diff(
+            "--- fresh.rs\n+++ fresh.rs\n@@ -1 +1 @@\n-old\n+new\n",
+        );
+        apply_watch_event(&mut app, WatchInputEvent::Batch { number: 2, files });
+        assert!(app.is_some());
     }
 
     #[test]

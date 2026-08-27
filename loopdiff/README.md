@@ -127,7 +127,8 @@ OSC 52 clipboard access.
 | `v`, then arrows or `h/j/k/l` | characterwise visual selection |
 | `Shift+V`, then `j/k` or arrows | linewise visual selection |
 | `y` | copy the visual selection |
-| `Shift+Y` | copy all comments as compact plain text |
+| `Shift+Y` | copy comments from files not marked viewed |
+| `Shift+R` | clear in-memory batches and return to the waiting screen |
 | `e` | open the current file in `$EDITOR` |
 | `/` | filter files through the statusline |
 | `h/l`, left/right | horizontally scroll the sidebar |

@@ -52,6 +52,7 @@ impl App {
             Command::Key(key) => match self.key(key) {
                 Outcome::Continue => Effect::None,
                 Outcome::Finish => Effect::Quit,
+                Outcome::ResetWatch => Effect::ResetWatch,
                 Outcome::Yank(text) => Effect::Copy(text),
                 Outcome::LoadFileView(file) => Effect::RequestFileView(file),
                 Outcome::OpenFile(path) => Effect::OpenFile(path),
@@ -293,6 +294,7 @@ impl App {
         }
         if self.watching && matches!(self.focus, Focus::Files | Focus::Diff) {
             match k.code {
+                KeyCode::Char('R') => return Outcome::ResetWatch,
                 KeyCode::Char(PREVIOUS_BATCH_KEY) => {
                     self.switch_batch(self.active_batch.saturating_sub(1));
                     return Outcome::Continue;

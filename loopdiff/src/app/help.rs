@@ -60,6 +60,7 @@ impl Help {
             help_line("", "v / Shift+V", "visual character / line mode"),
             help_line("", "y", "yank visual selection"),
             help_line("", "Shift+Y", "copy comments"),
+            help_line("", "Shift+R", "clear watched batches"),
             help_line("", "Enter", "add or edit comment"),
             help_line("", "[ / ]", "previous / next comment"),
             help_line("", "e", "open file in $EDITOR"),
