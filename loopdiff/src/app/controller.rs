@@ -449,7 +449,7 @@ impl App {
 
     fn comments_for_clipboard(&self) -> Vec<Comment> {
         if !self.watching {
-            return self.session.comments.clone();
+            return self.session.unviewed_comments();
         }
 
         self.batch_states
@@ -457,11 +457,11 @@ impl App {
             .enumerate()
             .flat_map(|(index, state)| {
                 if index == self.active_batch {
-                    self.session.comments.clone()
+                    self.session.unviewed_comments()
                 } else {
                     state
                         .as_ref()
-                        .map(|state| state.session.comments.clone())
+                        .map(|state| state.session.unviewed_comments())
                         .unwrap_or_default()
                 }
             })

@@ -589,6 +589,43 @@ fn shift_y_copies_comments_from_all_watched_batches() {
 }
 
 #[test]
+fn shift_y_skips_comments_from_viewed_files_in_every_batch() {
+    let files = || parse_unified_diff("--- a.rs\n+++ a.rs\n@@ -1 +1 @@\n-old\n+new\n");
+    let comment = |id: &str, text: &str| Comment {
+        id: id.into(),
+        path: "a.rs".into(),
+        excerpt: "-old\n+new".into(),
+        old_start: Some(1),
+        old_end: Some(1),
+        new_start: Some(1),
+        new_end: Some(1),
+        anchor_old: None,
+        anchor_new: Some(1),
+        text: text.into(),
+    };
+    let mut app = App::new_watching(1, files());
+    app.session
+        .comments
+        .push(comment("first", "Reviewed batch"));
+    app.session.viewed_files.insert(0);
+    app.update(Command::BatchReceived {
+        number: 2,
+        files: files(),
+    });
+    app.session
+        .comments
+        .push(comment("second", "Pending batch"));
+
+    let outcome = app.key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT));
+
+    let Outcome::Yank(text) = outcome else {
+        panic!("Shift+Y should copy comments from unviewed files");
+    };
+    assert!(!text.contains("Reviewed batch"));
+    assert!(text.contains("Pending batch"));
+}
+
+#[test]
 fn v_selects_characters_for_yank_without_creating_comment_range() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n+hello\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());

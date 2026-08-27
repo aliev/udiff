@@ -46,6 +46,19 @@ impl Session {
         self.comments.push(comment);
     }
 
+    pub fn unviewed_comments(&self) -> Vec<Comment> {
+        self.comments
+            .iter()
+            .filter(|comment| {
+                self.files
+                    .iter()
+                    .position(|file| file.path == comment.path)
+                    .is_none_or(|file| !self.viewed_files.contains(&file))
+            })
+            .cloned()
+            .collect()
+    }
+
     pub fn save_comment(
         &mut self,
         file: usize,
@@ -127,6 +140,7 @@ fn next_id<'a>(prefix: &str, existing: impl Iterator<Item = &'a str>) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::parse_unified_diff;
 
     fn comment(id: &str) -> Comment {
         Comment {
@@ -163,6 +177,29 @@ mod tests {
                 .map(|item| item.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["t1", "t2"]
+        );
+    }
+
+    #[test]
+    fn comments_from_viewed_files_are_excluded_from_review() {
+        let files = parse_unified_diff(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n\
+             diff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old\n+new\n",
+        );
+        let mut first = comment("t1");
+        first.path = "a.rs".into();
+        let mut second = comment("t2");
+        second.path = "b.rs".into();
+        let mut session = Session::new(files, vec![first, second]);
+        session.viewed_files.insert(0);
+
+        assert_eq!(
+            session
+                .unviewed_comments()
+                .iter()
+                .map(|comment| comment.path.as_str())
+                .collect::<Vec<_>>(),
+            ["b.rs"]
         );
     }
 }
