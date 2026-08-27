@@ -1,0 +1,24 @@
+[package]
+name = "loopdiff"
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.88"
+authors = ["Ali Aliyev <ali@aliev.me>"]
+description = "A fast terminal UI for viewing unified diffs"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/aliev/loopdiff"
+homepage = "https://github.com/aliev/loopdiff"
+keywords = ["diff", "patch", "terminal", "tui"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/.github/", "/AGENTS.md", "/docs/assets/"]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.23"
+crossterm = { version = "0.29", features = ["use-dev-tty"] }
+diffwatch = { path = "../diffwatch" }
+ratatui = "0.30"
+regex = "1"
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
+unicode-width = "0.2"

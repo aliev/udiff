@@ -1,0 +1,2 @@
+pub const DEFAULT_SETTLE_SECONDS: f64 = 2.0;
+pub const DEFAULT_MAX_TEXT_BYTES: u64 = 2 * 1024 * 1024;

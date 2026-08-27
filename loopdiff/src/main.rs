@@ -1,0 +1,86 @@
+mod app;
+mod comment;
+mod input;
+mod model;
+mod terminal;
+
+use anyhow::Result;
+use app::App;
+use input::{DiffSource, StdinDiffSource, WatchSource};
+use std::path::PathBuf;
+use terminal::TerminalRuntime;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum InputMode {
+    Static,
+    Watch(PathBuf),
+}
+
+impl InputMode {
+    fn parse(arguments: impl IntoIterator<Item = String>) -> Result<Self> {
+        let arguments = arguments.into_iter().collect::<Vec<_>>();
+        match arguments.as_slice() {
+            [] => Ok(Self::Static),
+            [flag, root] if flag == "--watch" => Ok(Self::Watch(root.into())),
+            [flag] if flag == "--watch" => anyhow::bail!("--watch requires a directory"),
+            [argument, ..] => anyhow::bail!("unexpected argument: {argument}"),
+        }
+    }
+}
+
+fn main() {
+    let code = match run() {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("loopdiff: {error:#}");
+            1
+        }
+    };
+    std::process::exit(code);
+}
+
+fn run() -> Result<i32> {
+    match InputMode::parse(std::env::args().skip(1))? {
+        InputMode::Watch(root) => view_watch(root),
+        InputMode::Static => view_stdin(),
+    }
+}
+
+fn view_stdin() -> Result<i32> {
+    let raw = StdinDiffSource.read()?;
+    view_diff(&raw)
+}
+
+fn view_watch(root: PathBuf) -> Result<i32> {
+    let source = WatchSource::start(root)?;
+    TerminalRuntime::run_watching(source)?;
+    Ok(0)
+}
+
+fn view_diff(raw: &str) -> Result<i32> {
+    let files = model::parse_unified_diff(raw);
+    if files.is_empty() {
+        eprintln!("loopdiff: nothing to view");
+        return Ok(0);
+    }
+
+    let app = App::new(files, Vec::new());
+    TerminalRuntime::run(app)?;
+    Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_mode_accepts_only_the_documented_invocations() {
+        assert_eq!(InputMode::parse(Vec::new()).unwrap(), InputMode::Static);
+        assert_eq!(
+            InputMode::parse(["--watch".to_owned(), "project".to_owned()]).unwrap(),
+            InputMode::Watch(PathBuf::from("project"))
+        );
+        assert!(InputMode::parse(["--unknown".to_owned()]).is_err());
+        assert!(InputMode::parse(["--watch".to_owned()]).is_err());
+    }
+}
