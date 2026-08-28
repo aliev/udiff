@@ -21,11 +21,11 @@ use help::Help;
 use session::Session;
 use statusline::Statusline;
 
-const BG: Color = Color::Rgb(15, 18, 25);
-const SURFACE: Color = Color::Rgb(21, 25, 35);
-const BORDER: Color = Color::Rgb(45, 51, 66);
-const TEXT: Color = Color::Rgb(220, 224, 232);
-const MUTED: Color = Color::Rgb(122, 132, 153);
+pub(crate) const BG: Color = Color::Rgb(15, 18, 25);
+pub(crate) const SURFACE: Color = Color::Rgb(21, 25, 35);
+pub(crate) const BORDER: Color = Color::Rgb(45, 51, 66);
+pub(crate) const TEXT: Color = Color::Rgb(220, 224, 232);
+pub(crate) const MUTED: Color = Color::Rgb(122, 132, 153);
 const BLUE: Color = Color::Rgb(122, 162, 247);
 const GREEN: Color = Color::Rgb(158, 206, 106);
 const GREEN_BG: Color = Color::Rgb(24, 45, 35);

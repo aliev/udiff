@@ -1,4 +1,4 @@
-use crate::app::{App, Command, Effect};
+use crate::app::{App, BG, BORDER, Command, Effect, MUTED, SURFACE, TEXT};
 use crate::input::{WatchInputEvent, WatchSource};
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -11,7 +11,7 @@ use ratatui::{
     Frame, Terminal,
     backend::CrosstermBackend,
     layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, Borders, Paragraph},
 };
 use std::{
@@ -127,17 +127,14 @@ fn apply_watch_event(app: &mut Option<App>, event: WatchInputEvent) {
 
 fn draw_waiting(frame: &mut Frame) {
     let area = frame.area();
-    frame.render_widget(
-        Block::default().style(Style::default().bg(Color::Rgb(13, 17, 23))),
-        area,
-    );
+    frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
     frame.render_widget(
         Paragraph::new(vec![
             ratatui::text::Line::from(""),
             ratatui::text::Line::from(ratatui::text::Span::styled(
                 "Waiting for file changes…",
                 Style::default()
-                    .fg(Color::Rgb(230, 237, 243))
+                    .fg(TEXT)
                     .add_modifier(ratatui::style::Modifier::BOLD),
             )),
             ratatui::text::Line::from("Your next diff batch will appear here automatically."),
@@ -145,13 +142,13 @@ fn draw_waiting(frame: &mut Frame) {
             ratatui::text::Line::from("q quit"),
         ])
         .alignment(Alignment::Center)
-        .style(Style::default().fg(Color::Rgb(139, 148, 158)))
+        .style(Style::default().fg(MUTED).bg(SURFACE))
         .block(
             Block::default()
                 .title(" loopdiff · live review ")
                 .borders(Borders::ALL)
                 .border_type(ratatui::widgets::BorderType::Rounded)
-                .border_style(Style::default().fg(Color::Rgb(48, 54, 61))),
+                .border_style(Style::default().fg(BORDER)),
         ),
         waiting_panel(area),
     );

@@ -901,7 +901,7 @@ fn space_marks_files_viewed_and_advances_to_the_next_unviewed_file() {
         .map(|cell| cell.symbol())
         .collect::<String>();
     assert!(rendered.contains('✓'));
-    assert!(rendered.contains("1/2 viewed · 0 comments"));
+    assert!(rendered.contains("1/2 reviewed · 0 notes"));
 
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     assert_eq!(app.session.viewed_files.len(), 2);

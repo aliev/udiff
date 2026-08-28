@@ -77,14 +77,8 @@ impl Statusline {
             {
                 format!(" {message} · ? help ")
             } else {
-                let progress = format!(
-                    "{}/{} viewed · {} comments",
-                    session.viewed_files.len(),
-                    session.files.len(),
-                    session.comments.len()
-                );
                 let state = match focus {
-                    Focus::Files => format!(" {progress} "),
+                    Focus::Files => " j/k navigate · Space reviewed ".into(),
                     Focus::Editor => " Enter save · Shift+Enter newline · Esc cancel ".into(),
                     _ => {
                         let line = &pane.active_lines(&session.files)[pane.cursor];
@@ -94,7 +88,7 @@ impl Statusline {
                             _ => "hunk".into(),
                         };
                         let percent = (pane.cursor + 1) * 100 / current.lines.len().max(1);
-                        format!(" {location} · {percent}% · {progress} ")
+                        format!(" {location} · {percent}% ")
                     }
                 };
                 format!(" ? help ·{state}")

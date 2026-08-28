@@ -7,10 +7,10 @@ use crate::{comment::Comment, model::FileDiff};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
 };
 use std::collections::HashSet;
 use unicode_width::UnicodeWidthStr;
@@ -247,7 +247,38 @@ impl FileTree {
     }
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, view: &View<'_>) {
-        self.area = area;
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(2), Constraint::Min(0)])
+            .split(area);
+        let list_area = rows[1];
+        self.area = list_area;
+        let summary = format!(
+            "  {}/{} reviewed · {} notes",
+            view.viewed_files.len(),
+            view.files.len(),
+            view.comments.len()
+        );
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    " CHANGES",
+                    Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(summary, Style::default().fg(MUTED)),
+            ]))
+            .block(
+                Block::default()
+                    .borders(Borders::RIGHT | Borders::BOTTOM)
+                    .border_style(Style::default().fg(if view.focused {
+                        super::BLUE
+                    } else {
+                        BORDER
+                    })),
+            )
+            .style(Style::default().bg(SURFACE)),
+            rows[0],
+        );
         let entries = self.entries(view);
         let content_width = entries
             .iter()
@@ -263,7 +294,7 @@ impl FileTree {
             })
             .max()
             .unwrap_or(0);
-        let viewport_width = area.width.saturating_sub(1) as usize;
+        let viewport_width = list_area.width.saturating_sub(1) as usize;
         self.scroll_x = self
             .scroll_x
             .min(content_width.saturating_sub(viewport_width));
@@ -272,7 +303,7 @@ impl FileTree {
             .iter()
             .position(|entry| entry.target == Some(active))
             .unwrap_or(0);
-        let height = area.height as usize;
+        let height = list_area.height as usize;
         self.scroll_y = self.scroll_y.min(entries.len().saturating_sub(height));
         if self.follow_selection {
             if active_row < self.scroll_y {
@@ -321,8 +352,10 @@ impl FileTree {
                                 }),
                         ));
                         ListItem::new(Line::from(crop_spans(spans, self.scroll_x, viewport_width)))
-                            .style(if current {
+                            .style(if current && view.focused {
                                 Style::default().bg(SELECT_BG)
+                            } else if current {
+                                Style::default().bg(super::BG)
                             } else {
                                 Style::default()
                             })
@@ -346,8 +379,10 @@ impl FileTree {
                             self.scroll_x,
                             viewport_width,
                         )))
-                        .style(if selected {
+                        .style(if selected && view.focused {
                             Style::default().bg(SELECT_BG)
+                        } else if selected {
+                            Style::default().bg(super::COMMENT_BG)
                         } else {
                             Style::default()
                         })
@@ -369,7 +404,7 @@ impl FileTree {
                     Style::default().fg(if view.focused { super::BLUE } else { BORDER }),
                 ))
                 .style(Style::default().bg(SURFACE)),
-            area,
+            list_area,
         );
     }
 }
