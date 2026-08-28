@@ -8,7 +8,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, List, ListItem},
 };
@@ -254,9 +254,9 @@ impl FileTree {
             .map(|entry| {
                 entry.depth * 2
                     + match entry.target {
-                        Some(Target::File(_)) => 5 + UnicodeWidthStr::width(entry.label.as_str()),
+                        Some(Target::File(_)) => 6 + UnicodeWidthStr::width(entry.label.as_str()),
                         Some(Target::Comment { .. }) => {
-                            3 + UnicodeWidthStr::width(entry.label.as_str())
+                            4 + UnicodeWidthStr::width(entry.label.as_str())
                         }
                         None => UnicodeWidthStr::width(entry.label.as_str()),
                     }
@@ -296,25 +296,32 @@ impl FileTree {
                     Some(Target::File(file_index)) => {
                         let file = &view.files[file_index];
                         let viewed = view.viewed_files.contains(&file_index);
+                        let current = file_index == view.current_file;
                         let mut spans = vec![
                             Span::raw(indent),
                             Span::styled(
+                                if current { "▌" } else { " " },
+                                Style::default().fg(if current { super::BLUE } else { SURFACE }),
+                            ),
+                            Span::styled(
                                 if viewed { "✓ " } else { "  " },
-                                Style::default().fg(MUTED),
+                                Style::default().fg(if viewed { super::GREEN } else { MUTED }),
                             ),
                         ];
                         spans.extend(file_status_spans(file.status));
                         spans.push(Span::raw(" "));
                         spans.push(Span::styled(
                             entry.label,
-                            Style::default().fg(if viewed && file_index != view.current_file {
-                                MUTED
-                            } else {
-                                TEXT
-                            }),
+                            Style::default()
+                                .fg(if viewed && !current { MUTED } else { TEXT })
+                                .add_modifier(if current {
+                                    Modifier::BOLD
+                                } else {
+                                    Modifier::empty()
+                                }),
                         ));
                         ListItem::new(Line::from(crop_spans(spans, self.scroll_x, viewport_width)))
-                            .style(if file_index == view.current_file {
+                            .style(if current {
                                 Style::default().bg(SELECT_BG)
                             } else {
                                 Style::default()
@@ -330,7 +337,7 @@ impl FileTree {
                         ListItem::new(Line::from(crop_spans(
                             vec![
                                 Span::raw(indent),
-                                Span::styled("└─ ", Style::default().fg(BORDER)),
+                                Span::styled("  └ ", Style::default().fg(BORDER)),
                                 Span::styled(
                                     entry.label,
                                     Style::default().fg(if selected { TEXT } else { MUTED }),

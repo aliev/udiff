@@ -132,23 +132,48 @@ fn draw_waiting(frame: &mut Frame) {
         area,
     );
     frame.render_widget(
-        Paragraph::new("Waiting for file changes… · q quit")
-            .alignment(Alignment::Center)
-            .style(Style::default().fg(Color::Rgb(139, 148, 158)))
-            .block(Block::default().borders(Borders::TOP | Borders::BOTTOM)),
+        Paragraph::new(vec![
+            ratatui::text::Line::from(""),
+            ratatui::text::Line::from(ratatui::text::Span::styled(
+                "Waiting for file changes…",
+                Style::default()
+                    .fg(Color::Rgb(230, 237, 243))
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            )),
+            ratatui::text::Line::from("Your next diff batch will appear here automatically."),
+            ratatui::text::Line::from(""),
+            ratatui::text::Line::from("q quit"),
+        ])
+        .alignment(Alignment::Center)
+        .style(Style::default().fg(Color::Rgb(139, 148, 158)))
+        .block(
+            Block::default()
+                .title(" loopdiff · live review ")
+                .borders(Borders::ALL)
+                .border_type(ratatui::widgets::BorderType::Rounded)
+                .border_style(Style::default().fg(Color::Rgb(48, 54, 61))),
+        ),
         waiting_panel(area),
     );
 }
 
 fn waiting_panel(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
-    Layout::default()
+    let row = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Percentage(45),
-            Constraint::Length(3),
-            Constraint::Percentage(55),
+            Constraint::Fill(1),
+            Constraint::Length(7.min(area.height)),
+            Constraint::Fill(1),
         ])
-        .split(area)[1]
+        .split(area)[1];
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Fill(1),
+            Constraint::Length(58.min(area.width)),
+            Constraint::Fill(1),
+        ])
+        .split(row)[1]
 }
 
 fn handle_effect(

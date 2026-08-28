@@ -693,6 +693,30 @@ fn characterwise_selection_preserves_syntax_foreground() {
 }
 
 #[test]
+fn linewise_selection_does_not_highlight_the_diff_gutter() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.diff_pane.cursor = 2;
+    app.key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT));
+    let line = app.current().lines[2].clone();
+
+    let rendered =
+        app.diff_pane
+            .line_for_test(&app.session, &app.comment_editor, app.focus, &line, 2, 40);
+
+    assert!(
+        rendered.spans[..3]
+            .iter()
+            .all(|span| span.style.bg == Some(GREEN_BG))
+    );
+    assert!(
+        rendered.spans[3..]
+            .iter()
+            .all(|span| span.style.bg == Some(SELECT_BG))
+    );
+}
+
+#[test]
 fn normal_mode_renders_and_moves_the_character_cursor() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n+hello\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());

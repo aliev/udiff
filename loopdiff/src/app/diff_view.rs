@@ -174,38 +174,74 @@ impl Renderer<'_> {
         } else {
             file.path.clone()
         };
-        let file_header = vec![
+        let mut left_header = vec![Span::raw(" ")];
+        left_header.extend(crate::app::render::file_status_spans(file.status));
+        left_header.extend([
             Span::styled(
-                format!(" {shown_path}"),
+                format!("  {shown_path}"),
                 Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" "),
-            Span::styled(format!("+{}", file.additions()), Style::default().fg(GREEN)),
+            Span::styled(
+                format!("   +{}", file.additions()),
+                Style::default().fg(GREEN),
+            ),
             Span::styled(format!(" −{}", file.deletions()), Style::default().fg(RED)),
+        ]);
+        let mut right_header = Vec::new();
+        if self.session.viewed_files.contains(&self.pane.file) {
+            right_header.push(Span::styled(
+                "✓ REVIEWED  ",
+                Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
+            ));
+        }
+        right_header.extend([
             Span::styled(
                 if self.pane.file_view {
-                    "  FILE"
+                    " FILE "
                 } else {
-                    "  DIFF"
+                    " DIFF "
                 },
-                Style::default().fg(BLUE).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(BLUE)
+                    .bg(SELECT_BG)
+                    .add_modifier(Modifier::BOLD),
             ),
-        ];
+            Span::raw(" "),
+        ]);
         f.render_widget(
-            Paragraph::new(Line::from(file_header))
-                .block(
-                    Block::default()
-                        .borders(Borders::BOTTOM)
-                        .border_style(Style::default().fg(
-                            if matches!(self.focus, Focus::Diff | Focus::Editor) {
-                                BLUE
-                            } else {
-                                BORDER
-                            },
-                        )),
-                )
+            Block::default()
+                .borders(Borders::BOTTOM)
+                .border_style(Style::default().fg(
+                    if matches!(self.focus, Focus::Diff | Focus::Editor) {
+                        BLUE
+                    } else {
+                        BORDER
+                    },
+                ))
                 .style(Style::default().bg(SURFACE)),
             parts[0],
+        );
+        let right_width = right_header
+            .iter()
+            .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+            .sum::<usize>()
+            .min(parts[0].width as usize) as u16;
+        let header_columns = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(0), Constraint::Length(right_width)])
+            .split(Rect {
+                height: 1,
+                ..parts[0]
+            });
+        f.render_widget(
+            Paragraph::new(Line::from(left_header)).style(Style::default().bg(SURFACE)),
+            header_columns[0],
+        );
+        f.render_widget(
+            Paragraph::new(Line::from(right_header))
+                .alignment(ratatui::layout::Alignment::Right)
+                .style(Style::default().bg(SURFACE)),
+            header_columns[1],
         );
         self.pane.area = parts[1];
         if self.pane.file_view {
@@ -272,7 +308,7 @@ impl Renderer<'_> {
         change: Option<FileViewChange>,
         width: usize,
     ) -> Line<'a> {
-        let background = if self.visual_line_selected(position) {
+        let code_background = if self.visual_line_selected(position) {
             SELECT_BG
         } else {
             BG
@@ -285,10 +321,10 @@ impl Renderer<'_> {
             None => (" ", MUTED),
         };
         let mut spans = vec![
-            Span::styled(marker, Style::default().fg(marker_color).bg(background)),
+            Span::styled(marker, Style::default().fg(marker_color).bg(BG)),
             Span::styled(
                 format!("{:>6}  ", position + 1),
-                Style::default().fg(MUTED).bg(background),
+                Style::default().fg(MUTED).bg(BG),
             ),
         ];
         if line.syntax.is_empty() {
@@ -306,9 +342,9 @@ impl Renderer<'_> {
                 spans.push(Span::styled(syntax.text.clone(), style));
             }
         }
-        for span in &mut spans {
+        for span in &mut spans[2..] {
             if span.style.bg.is_none() {
-                span.style = span.style.bg(background);
+                span.style = span.style.bg(code_background);
             }
         }
         expand_tabs(&mut spans, 2);
@@ -330,7 +366,7 @@ impl Renderer<'_> {
                 &mut spans,
                 2,
                 expanded_character_column(&line.text, self.pane.visual_col),
-                background,
+                code_background,
             );
         }
         let content_width = spans
@@ -340,7 +376,7 @@ impl Renderer<'_> {
         if content_width < width {
             spans.push(Span::styled(
                 " ".repeat(width - content_width),
-                Style::default().bg(background),
+                Style::default().bg(code_background),
             ));
         }
         Line::from(spans)
@@ -483,7 +519,7 @@ impl Renderer<'_> {
             LineKind::Hunk => HUNK_BG,
             _ => BG,
         };
-        let bg = if self.visual_line_selected(p) {
+        let code_bg = if self.visual_line_selected(p) {
             SELECT_BG
         } else {
             base_bg
@@ -529,9 +565,9 @@ impl Renderer<'_> {
                 spans.push(Span::styled(s.text.clone(), st));
             }
         }
-        for span in &mut spans {
+        for (index, span) in spans.iter_mut().enumerate() {
             if span.style.bg.is_none() {
-                span.style = span.style.bg(bg);
+                span.style = span.style.bg(if index < 3 { base_bg } else { code_bg });
             }
         }
         expand_tabs(&mut spans, 3);
@@ -550,7 +586,7 @@ impl Renderer<'_> {
                 &mut spans,
                 3,
                 expanded_character_column(&l.text, self.pane.visual_col),
-                bg,
+                code_bg,
             );
         }
         let content_width = spans
@@ -560,7 +596,7 @@ impl Renderer<'_> {
         if content_width < width {
             spans.push(Span::styled(
                 " ".repeat(width - content_width),
-                Style::default().bg(bg),
+                Style::default().bg(code_bg),
             ));
         }
         Line::from(spans)

@@ -1,5 +1,5 @@
 use super::{
-    BG, BLUE, COMMENT, Focus, GREEN, MUTED, RED, SURFACE, TEXT, diff_pane::DiffPane,
+    BG, BLUE, COMMENT, Focus, GREEN, MUTED, RED, SELECT_BG, SURFACE, TEXT, diff_pane::DiffPane,
     file_tree::FileTree, render::crop_spans, session::Session,
 };
 use ratatui::{
@@ -112,9 +112,13 @@ impl Statusline {
                         Span::styled(format!(" {detail}"), Style::default().fg(TEXT)),
                     ];
                     if let Some((position, total, number)) = *batch {
+                        spans.push(Span::styled("  ", Style::default()));
                         spans.push(Span::styled(
-                            format!(" · batch {position}/{total} (#{number})"),
-                            Style::default().fg(MUTED),
+                            format!(" BATCH {position}/{total} · #{number} "),
+                            Style::default()
+                                .fg(BLUE)
+                                .bg(SELECT_BG)
+                                .add_modifier(Modifier::BOLD),
                         ));
                     }
                     spans

@@ -1,9 +1,9 @@
-use super::{BLUE, MUTED, SURFACE, TEXT};
+use super::{BLUE, COMMENT, MUTED, SELECT_BG, SURFACE, TEXT};
 use crossterm::event::{Event, KeyCode};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::Style,
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
@@ -91,6 +91,7 @@ impl Help {
                     Block::default()
                         .title(" Help · ? or Esc to close ")
                         .borders(Borders::ALL)
+                        .border_type(ratatui::widgets::BorderType::Rounded)
                         .border_style(Style::default().fg(BLUE)),
                 )
                 .style(Style::default().fg(TEXT).bg(SURFACE)),
@@ -101,8 +102,18 @@ impl Help {
 
 fn help_line(section: &'static str, key: &'static str, description: &'static str) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("{section:<12}"), Style::default().fg(MUTED)),
-        Span::styled(format!("{key:<20}"), Style::default().fg(BLUE)),
+        Span::styled(
+            format!("{section:<12}"),
+            Style::default().fg(if section.is_empty() { MUTED } else { COMMENT }),
+        ),
+        Span::styled(
+            format!(" {key:<17} "),
+            Style::default()
+                .fg(BLUE)
+                .bg(SELECT_BG)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
         Span::styled(description, Style::default().fg(TEXT)),
     ])
 }
