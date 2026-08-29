@@ -278,7 +278,7 @@ pub(super) fn apply_character_selection<'a>(
     *spans = rebuilt;
 }
 
-pub(super) fn line_in_note(l: &DiffLine, n: &Comment) -> bool {
+pub(super) fn line_in_comment(l: &DiffLine, n: &Comment) -> bool {
     if l.kind == LineKind::Hunk {
         return n.excerpt.lines().any(|x| x.trim() == l.text);
     }
@@ -296,9 +296,9 @@ pub(super) fn anchor_position(f: &FileDiff, n: &Comment) -> Option<usize> {
         .position(|l| {
             (n.anchor_old.is_none() || l.old == n.anchor_old)
                 && (n.anchor_new.is_none() || l.new == n.anchor_new)
-                && line_in_note(l, n)
+                && line_in_comment(l, n)
         })
-        .or_else(|| f.lines.iter().position(|l| line_in_note(l, n)))
+        .or_else(|| f.lines.iter().position(|l| line_in_comment(l, n)))
 }
 pub(super) fn editor_visual_rows(text: &str, width: usize) -> Vec<(usize, usize)> {
     let mut rows = Vec::new();

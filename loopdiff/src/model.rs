@@ -107,6 +107,47 @@ impl FileDiff {
     }
 }
 
+pub fn render_unified_diff(files: &[FileDiff]) -> String {
+    let mut output = String::new();
+    for file in files {
+        let old_path = file.old_path.as_deref().unwrap_or(&file.path);
+        output.push_str(&format!("diff --git a/{old_path} b/{}\n", file.path));
+        match file.status {
+            FileStatus::Added => output.push_str("new file mode 100644\n"),
+            FileStatus::Deleted => output.push_str("deleted file mode 100644\n"),
+            FileStatus::Renamed => {
+                output.push_str(&format!(
+                    "rename from {old_path}\nrename to {}\n",
+                    file.path
+                ));
+            }
+            FileStatus::Modified => {}
+        }
+        let old_header = if file.status == FileStatus::Added {
+            "/dev/null".into()
+        } else {
+            format!("a/{old_path}")
+        };
+        let new_header = if file.status == FileStatus::Deleted {
+            "/dev/null".into()
+        } else {
+            format!("b/{}", file.path)
+        };
+        output.push_str(&format!("--- {old_header}\n+++ {new_header}\n"));
+        for line in &file.lines {
+            match line.kind {
+                LineKind::Add => output.push('+'),
+                LineKind::Remove => output.push('-'),
+                LineKind::Context => output.push(' '),
+                LineKind::Hunk | LineKind::Meta => {}
+            }
+            output.push_str(&line.text);
+            output.push('\n');
+        }
+    }
+    output
+}
+
 pub fn file_view_changes(file: &FileDiff) -> Vec<(u32, FileViewChange)> {
     let mut changes = Vec::new();
     let last_new_line = file
@@ -323,6 +364,12 @@ mod tests {
         assert_eq!(f[0].additions(), 2);
         assert_eq!(f[0].lines[2].old, Some(2));
         assert_eq!(f[0].lines[3].new, Some(2));
+    }
+
+    #[test]
+    fn parsed_revisions_render_back_to_unified_diff() {
+        let files = parse_unified_diff(SAMPLE);
+        assert_eq!(render_unified_diff(&files), SAMPLE);
     }
 
     #[test]

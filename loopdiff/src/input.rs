@@ -1,5 +1,6 @@
 use crate::model::{FileDiff, parse_unified_diff};
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use diffwatch::watcher::{WatchEvent, WatchHandle, WatchOptions};
 use std::io::{self, IsTerminal, Read};
 use std::path::PathBuf;
@@ -11,22 +12,46 @@ pub trait DiffSource {
 
 pub struct StdinDiffSource;
 
+impl StdinDiffSource {
+    pub fn read_optional(&mut self) -> Result<Option<String>> {
+        let mut stdin = io::stdin();
+        let is_terminal = stdin.is_terminal();
+        read_optional_diff(&mut stdin, is_terminal)
+    }
+}
+
 #[derive(Debug)]
 pub enum WatchInputEvent {
-    Batch { number: u64, files: Vec<FileDiff> },
+    Batch {
+        number: u64,
+        started_at: DateTime<Utc>,
+        finished_at: DateTime<Utc>,
+        files: Vec<FileDiff>,
+    },
     Error(String),
     Closed,
 }
 
 pub struct WatchSource {
     handle: WatchHandle,
+    root: PathBuf,
 }
 
 impl WatchSource {
     pub fn start(root: PathBuf) -> Result<Self> {
+        let root = if root.is_absolute() {
+            root
+        } else {
+            std::env::current_dir()?.join(root)
+        };
         Ok(Self {
-            handle: WatchHandle::start(WatchOptions::new(root))?,
+            handle: WatchHandle::start(WatchOptions::new(root.clone()))?,
+            root,
         })
+    }
+
+    pub fn root(&self) -> &std::path::Path {
+        &self.root
     }
 
     pub fn try_recv(&self) -> std::result::Result<WatchInputEvent, TryRecvError> {
@@ -38,14 +63,20 @@ fn watch_input_event(event: WatchEvent) -> WatchInputEvent {
     match event {
         WatchEvent::Batch {
             number,
+            started_at,
+            finished_at,
             unified_diff,
-            ..
         } => {
             let files = parse_unified_diff(&unified_diff);
             if files.is_empty() {
-                WatchInputEvent::Error(format!("batch {number} contains no supported diff"))
+                WatchInputEvent::Error(format!("revision {number} contains no supported diff"))
             } else {
-                WatchInputEvent::Batch { number, files }
+                WatchInputEvent::Batch {
+                    number,
+                    started_at,
+                    finished_at,
+                    files,
+                }
             }
         }
         WatchEvent::Warning(error) => WatchInputEvent::Error(error),
@@ -72,6 +103,13 @@ fn read_diff(reader: &mut impl Read, is_terminal: bool) -> Result<String> {
     Ok(raw)
 }
 
+fn read_optional_diff(reader: &mut impl Read, is_terminal: bool) -> Result<Option<String>> {
+    if is_terminal {
+        return Ok(None);
+    }
+    read_diff(reader, false).map(Some)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,6 +122,18 @@ mod tests {
 
         let mut terminal = Cursor::new(Vec::new());
         assert!(read_diff(&mut terminal, true).is_err());
+    }
+
+    #[test]
+    fn optional_reader_distinguishes_a_terminal_from_piped_context() {
+        let mut terminal = Cursor::new(Vec::new());
+        assert_eq!(read_optional_diff(&mut terminal, true).unwrap(), None);
+
+        let mut pipe = Cursor::new(b"initial diff".to_vec());
+        assert_eq!(
+            read_optional_diff(&mut pipe, false).unwrap(),
+            Some("initial diff".into())
+        );
     }
 
     #[test]

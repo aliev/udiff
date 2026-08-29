@@ -52,8 +52,20 @@ fn view_stdin() -> Result<i32> {
 }
 
 fn view_watch(root: PathBuf) -> Result<i32> {
+    let context = StdinDiffSource.read_optional()?;
+    let initial = context
+        .filter(|raw| !raw.trim().is_empty())
+        .map(|raw| {
+            let files = model::parse_unified_diff(&raw);
+            anyhow::ensure!(
+                !files.is_empty(),
+                "piped context contains no supported diff"
+            );
+            Ok(App::new_watching_context(files))
+        })
+        .transpose()?;
     let source = WatchSource::start(root)?;
-    TerminalRuntime::run_watching(source)?;
+    TerminalRuntime::run_watching(source, initial)?;
     Ok(0)
 }
 

@@ -1,13 +1,13 @@
 use super::{
-    BG, BLUE, BORDER, COMMENT, Focus, GREEN, GREEN_BG, HUNK_BG, MUTED, RED, RED_BG, SELECT_BG,
-    SURFACE, TEXT,
+    BG, BLUE, BORDER, COMMENT, COMMENT_BG, Focus, GREEN, GREEN_BG, HUNK_BG, MUTED, RED, RED_BG,
+    SELECT_BG, SURFACE, TEXT,
     comment_editor::CommentEditor,
     diff_pane::{DiffPane, VisualMode},
-    render::inline_message_lines,
+    render::inline_comment_lines,
     session::Session,
     view_helpers::{
         anchor_position, apply_block_cursor, apply_character_selection, editor_visual_rows,
-        expand_tabs, expanded_character_column, line_in_note, ordered, ordered_position,
+        expand_tabs, expanded_character_column, line_in_comment, ordered, ordered_position,
         wrap_code_line, wrapped_scroll,
     },
 };
@@ -155,7 +155,7 @@ impl Renderer<'_> {
         self.session.comments.iter().any(|comment| {
             comment.path == file.path
                 && (anchor_position(file, comment) == Some(position)
-                    || line_in_note(&file.lines[position], comment))
+                    || line_in_comment(&file.lines[position], comment))
         })
     }
 
@@ -187,14 +187,7 @@ impl Renderer<'_> {
             ),
             Span::styled(format!(" −{}", file.deletions()), Style::default().fg(RED)),
         ]);
-        let mut right_header = Vec::new();
-        if self.session.viewed_files.contains(&self.pane.file) {
-            right_header.push(Span::styled(
-                "✓ REVIEWED  ",
-                Style::default().fg(GREEN).add_modifier(Modifier::BOLD),
-            ));
-        }
-        right_header.extend([
+        let right_header = vec![
             Span::styled(
                 if self.pane.file_view {
                     " FILE "
@@ -207,7 +200,7 @@ impl Renderer<'_> {
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
-        ]);
+        ];
         f.render_widget(
             Block::default()
                 .borders(Borders::BOTTOM)
@@ -428,20 +421,34 @@ impl Renderer<'_> {
             }
             let editor_here = Some(p) == self.editor.anchor && self.focus == Focus::Editor;
             if editor_here {
-                let title = if self.editor.editing_key.is_some() {
-                    "Edit comment"
+                let title = if let Some(key) = &self.editor.editing_key {
+                    let location = self
+                        .session
+                        .comments
+                        .iter()
+                        .find(|comment| &comment.id == key)
+                        .map(|comment| comment.short_location())
+                        .unwrap_or_else(|| "selection".into());
+                    format!("EDIT COMMENT · {location}")
                 } else {
-                    "Add comment"
+                    let (start, end) = self.pane.selected_bounds();
+                    let lines = end - start + 1;
+                    format!(
+                        "NEW COMMENT · {lines} line{} selected",
+                        if lines == 1 { "" } else { "s" }
+                    )
                 };
-                self.append_editor(&mut lines, &mut map, title, a.width as usize);
+                self.append_editor(&mut lines, &mut map, &title, a.width as usize);
             }
-            for n in self
+            for (number, n) in self
                 .session
                 .comments
                 .iter()
-                .filter(|n| n.path == file.path && anchor_position(&file, n) == Some(p))
+                .filter(|n| n.path == file.path)
+                .enumerate()
+                .filter(|(_, n)| anchor_position(&file, n) == Some(p))
             {
-                for comment_line in inline_message_lines(&n.text, a.width as usize) {
+                for comment_line in inline_comment_lines(n, number + 1, a.width as usize) {
                     lines.push(comment_line);
                     map.push(None);
                 }
@@ -458,15 +465,19 @@ impl Renderer<'_> {
         title: &str,
         width: usize,
     ) {
-        lines.push(Line::from(Span::styled(
-            format!("             ┌─ {title}"),
-            Style::default().fg(BLUE),
-        )));
+        const EDITOR_PREFIX_WIDTH: usize = 13;
+        lines.push(editor_card_line(
+            vec![Span::styled(
+                format!("╭─ {title}"),
+                Style::default().fg(COMMENT).bg(COMMENT_BG),
+            )],
+            width,
+            EDITOR_PREFIX_WIDTH,
+        ));
         map.push(None);
-        const EDITOR_PREFIX_WIDTH: usize = 15;
         let visual_rows = editor_visual_rows(
             &self.editor.text,
-            width.saturating_sub(EDITOR_PREFIX_WIDTH).max(1),
+            width.saturating_sub(EDITOR_PREFIX_WIDTH + 2).max(1),
         );
         let cursor_row = visual_rows
             .iter()
@@ -474,7 +485,10 @@ impl Renderer<'_> {
             .unwrap_or(0);
         for (index, (start, end)) in visual_rows.into_iter().enumerate() {
             let edit_line = &self.editor.text[start..end];
-            let mut editor_spans = vec![Span::raw("             │ ")];
+            let mut editor_spans = vec![Span::styled(
+                "┃ ",
+                Style::default().fg(COMMENT).bg(COMMENT_BG),
+            )];
             if index == cursor_row {
                 let cursor_column = self
                     .editor
@@ -483,32 +497,39 @@ impl Renderer<'_> {
                     .min(edit_line.len());
                 let before = &edit_line[..cursor_column];
                 let after = &edit_line[cursor_column..];
-                editor_spans.push(Span::styled(before.to_owned(), Style::default().fg(TEXT)));
+                editor_spans.push(Span::styled(
+                    before.to_owned(),
+                    Style::default().fg(TEXT).bg(COMMENT_BG),
+                ));
                 if let Some(character) = after.chars().next() {
                     editor_spans.push(Span::styled(
                         character.to_string(),
-                        Style::default().fg(BG).bg(TEXT),
+                        Style::default().fg(COMMENT_BG).bg(TEXT),
                     ));
                     editor_spans.push(Span::styled(
                         after[character.len_utf8()..].to_owned(),
-                        Style::default().fg(TEXT),
+                        Style::default().fg(TEXT).bg(COMMENT_BG),
                     ));
                 } else {
-                    editor_spans.push(Span::styled(" ", Style::default().bg(TEXT)));
+                    editor_spans.push(Span::styled(" ", Style::default().fg(COMMENT_BG).bg(TEXT)));
                 }
             } else {
                 editor_spans.push(Span::styled(
                     edit_line.to_owned(),
-                    Style::default().fg(TEXT),
+                    Style::default().fg(TEXT).bg(COMMENT_BG),
                 ));
             }
-            lines.push(Line::from(editor_spans));
+            lines.push(editor_card_line(editor_spans, width, EDITOR_PREFIX_WIDTH));
             map.push(None);
         }
-        lines.push(Line::from(Span::styled(
-            "             └─ Enter save · Shift+Enter newline · Esc cancel",
-            Style::default().fg(MUTED),
-        )));
+        lines.push(editor_card_line(
+            vec![Span::styled(
+                "╰─ Enter save · Shift+Enter newline · Esc cancel",
+                Style::default().fg(MUTED).bg(COMMENT_BG),
+            )],
+            width,
+            EDITOR_PREFIX_WIDTH,
+        ));
         map.push(None);
     }
 
@@ -601,4 +622,24 @@ impl Renderer<'_> {
         }
         Line::from(spans)
     }
+}
+
+fn editor_card_line<'a>(mut card: Vec<Span<'a>>, width: usize, prefix_width: usize) -> Line<'a> {
+    let card_width = width.saturating_sub(prefix_width);
+    let rendered = card
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum::<usize>();
+    if rendered < card_width {
+        card.push(Span::styled(
+            " ".repeat(card_width - rendered),
+            Style::default().bg(COMMENT_BG),
+        ));
+    }
+    let mut spans = vec![Span::styled(
+        " ".repeat(prefix_width.min(width)),
+        Style::default().bg(BG),
+    )];
+    spans.extend(card);
+    Line::from(spans)
 }

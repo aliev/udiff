@@ -50,21 +50,40 @@ cat changes.patch | loopdiff
 
 Running `loopdiff` without piped input exits with a short usage hint. An empty
 or unsupported input exits successfully with `loopdiff: nothing to view`.
-Comments and viewed-file state are intentionally local to the current run.
+Comments and reviewed-file state are intentionally local to the current run.
 
 ### Watch mode
 
-Open Loopdiff immediately and review quiet-period batches as files change:
+Open Loopdiff immediately and review revisions as files change:
 
 ```bash
 loopdiff --watch .
 ```
 
-Watch mode is in-memory and does not create a journal or require Git. Loopdiff
-follows new batches while you are viewing the latest one. Use `{` and `}` to
-move between older and newer batches. Cursor, comments, and viewed-file state
-are retained independently for every batch. `Shift+Y` copies comments from
-every batch in chronological order.
+Pipe an existing diff to seed the review with a context revision before live
+filesystem revisions arrive:
+
+```bash
+git diff | loopdiff --watch .
+```
+
+Watch mode is in-memory and does not create a journal or require Git. Each
+quiet-period batch from Diffwatch appears as a revision in Loopdiff. Loopdiff
+follows new revisions while you are viewing the latest one. Use `{` and `}` to
+move between older and newer revisions. Cursor, comments, and reviewed-file
+state are retained independently for every revision. `Shift+Y` copies comments
+from every revision in chronological order. When stdin provides the initial
+diff, it appears as `revision 1/N · context`; the watcher still snapshots the
+current directory normally and numbers subsequent live revisions from `#1`.
+
+Revisions created while an editor opened with `s` is running are labeled with
+the name from `git config user.name`, falling back to `human`; all other
+filesystem revisions are labeled `observed`. Classification uses the timestamps
+reported by Diffwatch: a revision belongs to the developer when its activity
+interval overlaps the editor session. This also covers multiple saves and
+multiple quiet-period revisions during one editing session. Because no agent
+protocol is involved, a revision containing simultaneous human and external
+edits is still attributed to the developer.
 
 ### Compare two files
 
@@ -123,16 +142,18 @@ OSC 52 clipboard access.
 | `Shift+Enter` | insert a newline in a comment |
 | `[` / `]` | previous/next comment |
 | `d` / `u` | delete comment / undo deletion |
-| `Space` | mark the current file viewed/unviewed and advance |
+| `Space` | mark the current file reviewed/reopen it and advance |
 | `v`, then arrows or `h/j/k/l` | characterwise visual selection |
 | `Shift+V`, then `j/k` or arrows | linewise visual selection |
 | `y` | copy the visual selection |
-| `Shift+Y` | copy comments from files not marked viewed |
-| `Shift+R` | clear in-memory batches and return to the waiting screen |
+| `Shift+Y` | copy comments from files not marked reviewed |
+| `Shift+S` | copy your current revision as an AI handoff |
+| `Shift+R` | clear in-memory revisions and return to the waiting screen |
 | `e` | open the current file in `$EDITOR` |
+| `s` | edit code at the current line in `$EDITOR` |
 | `/` | filter files through the statusline |
 | `h/l`, left/right | horizontally scroll the sidebar |
-| `{` / `}` | previous/next Diffwatch batch |
+| `{` / `}` | previous/next revision |
 | `Ctrl+U` / `Ctrl+D` | half-page up/down |
 | `q` | quit |
 

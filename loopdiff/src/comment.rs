@@ -20,6 +20,21 @@ impl Comment {
     pub fn first_text(&self) -> &str {
         &self.text
     }
+
+    pub fn short_location(&self) -> String {
+        let range = |start: Option<u32>, end: Option<u32>| match (start, end) {
+            (Some(start), Some(end)) if start != end => Some(format!("{start}–{end}")),
+            (Some(start), _) => Some(start.to_string()),
+            _ => None,
+        };
+        if let Some(lines) = range(self.new_start, self.new_end) {
+            format!("L{lines}")
+        } else if let Some(lines) = range(self.old_start, self.old_end) {
+            format!("old L{lines}")
+        } else {
+            "hunk".into()
+        }
+    }
 }
 
 pub fn format_for_clipboard(comments: &[Comment]) -> String {
@@ -75,8 +90,9 @@ mod tests {
         };
 
         assert_eq!(
-            format_for_clipboard(&[comment]),
+            format_for_clipboard(std::slice::from_ref(&comment)),
             "1. src/main.rs (old lines 3; new lines 3-4)\nSelected diff:\n-old\n+new\nComment: Please simplify"
         );
+        assert_eq!(comment.short_location(), "L3–4");
     }
 }

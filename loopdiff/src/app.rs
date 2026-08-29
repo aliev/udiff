@@ -13,7 +13,7 @@ mod search;
 mod session;
 mod statusline;
 mod view_helpers;
-pub use command::{Command, Effect};
+pub use command::{Command, EditorTarget, Effect, RevisionOrigin};
 use comment_editor::CommentEditor;
 use diff_pane::DiffPane;
 use file_tree::FileTree;
@@ -52,7 +52,7 @@ enum Outcome {
     ResetWatch,
     Yank(String),
     LoadFileView(usize),
-    OpenFile(String),
+    OpenEditor(EditorTarget),
 }
 
 pub struct App {
@@ -65,6 +65,7 @@ pub struct App {
     help: Help,
     statusline: Statusline,
     batch_number: u64,
+    revision_origin: RevisionOrigin,
     batch_states: Vec<Option<BatchState>>,
     active_batch: usize,
     watching: bool,
@@ -72,15 +73,17 @@ pub struct App {
 
 struct BatchState {
     number: u64,
+    origin: RevisionOrigin,
     session: Session,
     diff_pane: DiffPane,
     file_tree: FileTree,
 }
 
 impl BatchState {
-    fn new(number: u64, files: Vec<crate::model::FileDiff>) -> Self {
+    fn new(number: u64, files: Vec<crate::model::FileDiff>, origin: RevisionOrigin) -> Self {
         Self {
             number,
+            origin,
             diff_pane: DiffPane::new(&files),
             session: Session::new(files, Vec::new()),
             file_tree: FileTree::default(),

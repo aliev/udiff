@@ -7,7 +7,7 @@ use std::collections::HashSet;
 pub struct Session {
     pub files: Vec<FileDiff>,
     pub comments: Vec<Comment>,
-    pub viewed_files: HashSet<usize>,
+    pub reviewed_files: HashSet<usize>,
     deleted_comments: Vec<(usize, Comment)>,
 }
 
@@ -16,7 +16,7 @@ impl Session {
         Self {
             files,
             comments,
-            viewed_files: HashSet::new(),
+            reviewed_files: HashSet::new(),
             deleted_comments: Vec::new(),
         }
     }
@@ -46,17 +46,23 @@ impl Session {
         self.comments.push(comment);
     }
 
-    pub fn unviewed_comments(&self) -> Vec<Comment> {
+    pub fn comments_for_unreviewed_files(&self) -> Vec<Comment> {
         self.comments
             .iter()
             .filter(|comment| {
                 self.files
                     .iter()
                     .position(|file| file.path == comment.path)
-                    .is_none_or(|file| !self.viewed_files.contains(&file))
+                    .is_none_or(|file| !self.reviewed_files.contains(&file))
             })
             .cloned()
             .collect()
+    }
+
+    pub fn next_unreviewed_file(&self, current: usize) -> Option<usize> {
+        (1..=self.files.len())
+            .map(|offset| (current + offset) % self.files.len())
+            .find(|file| !self.reviewed_files.contains(file))
     }
 
     pub fn save_comment(
@@ -153,7 +159,7 @@ mod tests {
             new_end: Some(1),
             anchor_old: Some(1),
             anchor_new: Some(1),
-            text: "note".into(),
+            text: "comment".into(),
         }
     }
 
@@ -181,7 +187,7 @@ mod tests {
     }
 
     #[test]
-    fn comments_from_viewed_files_are_excluded_from_review() {
+    fn comments_from_reviewed_files_are_excluded_from_export() {
         let files = parse_unified_diff(
             "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n\
              diff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old\n+new\n",
@@ -191,15 +197,30 @@ mod tests {
         let mut second = comment("t2");
         second.path = "b.rs".into();
         let mut session = Session::new(files, vec![first, second]);
-        session.viewed_files.insert(0);
+        session.reviewed_files.insert(0);
 
         assert_eq!(
             session
-                .unviewed_comments()
+                .comments_for_unreviewed_files()
                 .iter()
                 .map(|comment| comment.path.as_str())
                 .collect::<Vec<_>>(),
             ["b.rs"]
         );
+    }
+
+    #[test]
+    fn next_unreviewed_file_wraps_and_skips_reviewed_files() {
+        let files = parse_unified_diff(
+            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-a\n+b\n\
+             diff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-a\n+b\n\
+             diff --git a/c.rs b/c.rs\n--- a/c.rs\n+++ b/c.rs\n@@ -1 +1 @@\n-a\n+b\n",
+        );
+        let mut session = Session::new(files, Vec::new());
+        session.reviewed_files.extend([0, 2]);
+
+        assert_eq!(session.next_unreviewed_file(2), Some(1));
+        session.reviewed_files.insert(1);
+        assert_eq!(session.next_unreviewed_file(2), None);
     }
 }

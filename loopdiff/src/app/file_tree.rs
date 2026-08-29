@@ -18,7 +18,7 @@ use unicode_width::UnicodeWidthStr;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Target {
     File(usize),
-    Comment { file: usize, note: usize },
+    Comment { file: usize, comment: usize },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,7 +51,7 @@ pub struct FileTree {
 pub struct View<'a> {
     pub files: &'a [FileDiff],
     pub comments: &'a [Comment],
-    pub viewed_files: &'a HashSet<usize>,
+    pub reviewed_files: &'a HashSet<usize>,
     pub current_file: usize,
     pub active_comment: Option<usize>,
     pub focused: bool,
@@ -151,17 +151,27 @@ impl FileTree {
     }
     fn entries(&self, view: &View<'_>) -> Vec<Entry> {
         let mut out = Vec::new();
+        let matching = view
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_, file)| self.filter.is_empty() || fuzzy(&self.filter, &file.path))
+            .map(|(file, _)| file)
+            .collect::<Vec<_>>();
+        Self::append_files(&mut out, view, &matching);
+        out
+    }
+
+    fn append_files(out: &mut Vec<Entry>, view: &View<'_>, files: &[usize]) {
         let mut seen = HashSet::new();
-        for (file_index, file) in view.files.iter().enumerate() {
-            if !self.filter.is_empty() && !fuzzy(&self.filter, &file.path) {
-                continue;
-            }
+        for &file_index in files {
+            let file = &view.files[file_index];
             let parts: Vec<_> = file.path.split('/').collect();
             for depth in 0..parts.len().saturating_sub(1) {
                 let key = parts[..=depth].join("/");
                 if seen.insert(key) {
                     out.push(Entry {
-                        label: format!("▰  {}", parts[depth]),
+                        label: format!("{}/", parts[depth]),
                         depth,
                         target: None,
                     });
@@ -172,28 +182,32 @@ impl FileTree {
                 depth: parts.len().saturating_sub(1),
                 target: Some(Target::File(file_index)),
             });
-            for (note, comment) in view
+            for (file_comment_number, (comment_index, comment)) in view
                 .comments
                 .iter()
                 .enumerate()
                 .filter(|(_, comment)| comment.path == file.path)
+                .enumerate()
             {
                 let text = comment.first_text().replace('\n', " ");
-                let mut short = text.chars().take(25).collect::<String>();
-                if text.chars().count() > 25 {
+                let mut short = text.chars().take(20).collect::<String>();
+                if text.chars().count() > 20 {
                     short.push('…');
                 }
                 out.push(Entry {
-                    label: short,
+                    label: format!(
+                        "{}  #{}  {short}",
+                        comment.short_location(),
+                        file_comment_number + 1
+                    ),
                     depth: parts.len(),
                     target: Some(Target::Comment {
                         file: file_index,
-                        note,
+                        comment: comment_index,
                     }),
                 });
             }
         }
-        out
     }
 
     pub fn targets(&self, view: &View<'_>) -> Vec<Target> {
@@ -253,17 +267,27 @@ impl FileTree {
             .split(area);
         let list_area = rows[1];
         self.area = list_area;
-        let summary = format!(
-            "  {}/{} reviewed · {} notes",
-            view.viewed_files.len(),
-            view.files.len(),
-            view.comments.len()
-        );
+        let complete = !view.files.is_empty() && view.reviewed_files.len() == view.files.len();
+        let summary = if complete {
+            format!(
+                "  {} files · {} comments",
+                view.files.len(),
+                view.comments.len()
+            )
+        } else {
+            format!(
+                "  {} left · {} comments",
+                view.files.len().saturating_sub(view.reviewed_files.len()),
+                view.comments.len()
+            )
+        };
         frame.render_widget(
             Paragraph::new(Line::from(vec![
                 Span::styled(
-                    " CHANGES",
-                    Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                    if complete { " done" } else { " review" },
+                    Style::default()
+                        .fg(if complete { super::GREEN } else { TEXT })
+                        .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(summary, Style::default().fg(MUTED)),
             ]))
@@ -285,7 +309,19 @@ impl FileTree {
             .map(|entry| {
                 entry.depth * 2
                     + match entry.target {
-                        Some(Target::File(_)) => 6 + UnicodeWidthStr::width(entry.label.as_str()),
+                        Some(Target::File(file)) => {
+                            let comments = view
+                                .comments
+                                .iter()
+                                .filter(|comment| comment.path == view.files[file].path)
+                                .count();
+                            6 + UnicodeWidthStr::width(entry.label.as_str())
+                                + if comments == 0 {
+                                    0
+                                } else {
+                                    2 + comments.to_string().len()
+                                }
+                        }
                         Some(Target::Comment { .. }) => {
                             4 + UnicodeWidthStr::width(entry.label.as_str())
                         }
@@ -326,7 +362,7 @@ impl FileTree {
                 match entry.target {
                     Some(Target::File(file_index)) => {
                         let file = &view.files[file_index];
-                        let viewed = view.viewed_files.contains(&file_index);
+                        let reviewed = view.reviewed_files.contains(&file_index);
                         let current = file_index == view.current_file;
                         let mut spans = vec![
                             Span::raw(indent),
@@ -335,8 +371,8 @@ impl FileTree {
                                 Style::default().fg(if current { super::BLUE } else { SURFACE }),
                             ),
                             Span::styled(
-                                if viewed { "✓ " } else { "  " },
-                                Style::default().fg(if viewed { super::GREEN } else { MUTED }),
+                                if reviewed { "✓ " } else { "  " },
+                                Style::default().fg(if reviewed { super::GREEN } else { MUTED }),
                             ),
                         ];
                         spans.extend(file_status_spans(file.status));
@@ -344,13 +380,24 @@ impl FileTree {
                         spans.push(Span::styled(
                             entry.label,
                             Style::default()
-                                .fg(if viewed && !current { MUTED } else { TEXT })
+                                .fg(if reviewed && !current { MUTED } else { TEXT })
                                 .add_modifier(if current {
                                     Modifier::BOLD
                                 } else {
                                     Modifier::empty()
                                 }),
                         ));
+                        let comments = view
+                            .comments
+                            .iter()
+                            .filter(|comment| comment.path == file.path)
+                            .count();
+                        if comments > 0 {
+                            spans.push(Span::styled(
+                                format!("  {comments}"),
+                                Style::default().fg(super::COMMENT),
+                            ));
+                        }
                         ListItem::new(Line::from(crop_spans(spans, self.scroll_x, viewport_width)))
                             .style(if current && view.focused {
                                 Style::default().bg(SELECT_BG)
@@ -360,12 +407,12 @@ impl FileTree {
                                 Style::default()
                             })
                     }
-                    Some(Target::Comment { file, note }) => {
-                        let target = Target::Comment { file, note };
+                    Some(Target::Comment { file, comment }) => {
+                        let target = Target::Comment { file, comment };
                         let selected = if view.focused {
                             self.selection == Some(target)
                         } else {
-                            file == view.current_file && view.active_comment == Some(note)
+                            file == view.current_file && view.active_comment == Some(comment)
                         };
                         ListItem::new(Line::from(crop_spans(
                             vec![
@@ -373,7 +420,13 @@ impl FileTree {
                                 Span::styled("  └ ", Style::default().fg(BORDER)),
                                 Span::styled(
                                     entry.label,
-                                    Style::default().fg(if selected { TEXT } else { MUTED }),
+                                    Style::default()
+                                        .fg(if selected { TEXT } else { MUTED })
+                                        .add_modifier(if selected {
+                                            Modifier::BOLD
+                                        } else {
+                                            Modifier::empty()
+                                        }),
                                 ),
                             ],
                             self.scroll_x,
@@ -419,7 +472,7 @@ mod tests {
         let files = parse_unified_diff(
             "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/docs/b.md b/docs/b.md\n--- a/docs/b.md\n+++ b/docs/b.md\n@@ -1 +1 @@\n-a\n+b\n",
         );
-        let viewed = HashSet::new();
+        let reviewed = HashSet::new();
         let mut tree = FileTree {
             filter: "sr".into(),
             ..FileTree::default()
@@ -427,7 +480,7 @@ mod tests {
         let view = View {
             files: &files,
             comments: &[],
-            viewed_files: &viewed,
+            reviewed_files: &reviewed,
             current_file: 0,
             active_comment: None,
             focused: true,
@@ -443,12 +496,12 @@ mod tests {
         let files = parse_unified_diff(
             "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -1 +1 @@\n-a\n+b\n",
         );
-        let viewed = HashSet::new();
+        let reviewed = HashSet::new();
         let mut tree = FileTree::default();
         let view = View {
             files: &files,
             comments: &[],
-            viewed_files: &viewed,
+            reviewed_files: &reviewed,
             current_file: 0,
             active_comment: None,
             focused: true,
@@ -460,12 +513,35 @@ mod tests {
     }
 
     #[test]
+    fn review_queue_keeps_files_in_their_original_order() {
+        let files = parse_unified_diff(concat!(
+            "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
+            "diff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -1 +1 @@\n-a\n+b\n",
+        ));
+        let reviewed = HashSet::from([0]);
+        let mut tree = FileTree::default();
+        let view = View {
+            files: &files,
+            comments: &[],
+            reviewed_files: &reviewed,
+            current_file: 1,
+            active_comment: None,
+            focused: true,
+        };
+
+        assert_eq!(tree.targets(&view), [Target::File(0), Target::File(1)]);
+
+        tree.filter = "a".into();
+        assert_eq!(tree.targets(&view), [Target::File(0)]);
+    }
+
+    #[test]
     fn search_owns_draft_restore_and_acceptance() {
         use crossterm::event::KeyModifiers;
         let files = parse_unified_diff(
             "diff --git a/first b/first\n--- a/first\n+++ b/first\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/second b/second\n--- a/second\n+++ b/second\n@@ -1 +1 @@\n-a\n+b\n",
         );
-        let viewed = HashSet::new();
+        let reviewed = HashSet::new();
         let mut tree = FileTree {
             filter: "first".into(),
             ..FileTree::default()
@@ -474,7 +550,7 @@ mod tests {
         let view = View {
             files: &files,
             comments: &[],
-            viewed_files: &viewed,
+            reviewed_files: &reviewed,
             current_file: 0,
             active_comment: None,
             focused: true,

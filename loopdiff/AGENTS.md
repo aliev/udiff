@@ -24,7 +24,7 @@ of Git repositories or review persistence formats.
 - `src/comment.rs`: the in-memory comment model.
 - `src/app.rs`: the UI composition root; it only declares the assembled parts.
 - `src/app/command.rs`: the `Command`/`Effect` boundary.
-- `src/app/session.rs`: diff, comments, viewed state, and comment history.
+- `src/app/session.rs`: diff, comments, reviewed state, and comment history.
 - `src/app/diff_pane.rs`: diff viewport state and navigation semantics.
 - `src/app/diff_view.rs`: diff and full-file rendering.
 - `src/app/file_tree.rs`: explorer state, navigation, filtering, and rendering.
@@ -80,7 +80,7 @@ transitions in `app.rs`.
 - `/` opens search in the shared statusline and filters the sidebar.
 - `gg` jumps to the start and `{number}gg` jumps to a visible old/new line.
 - `c` starts or clears the diff-line range used for a comment.
-- `Space` toggles the current file's in-memory viewed state.
+- `Space` toggles the current file's in-memory reviewed state.
 - `v` and `Shift+V` start characterwise and linewise visual selection.
 - `y` copies visual selection without diff markers.
 - `Shift+Y` copies all comments as compact plain text without metadata or

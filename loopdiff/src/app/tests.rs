@@ -1,5 +1,5 @@
 use super::file_tree::Target as SideTarget;
-use super::render::{crop_spans, file_status_spans, inline_message_lines};
+use super::render::{crop_spans, file_status_spans, inline_comment_lines};
 use super::view_helpers::*;
 use super::*;
 use crate::comment::Comment;
@@ -43,30 +43,83 @@ fn watched_batches_follow_latest_and_keep_independent_state() {
     let first = parse_unified_diff("--- first.rs\n+++ first.rs\n@@ -1 +1 @@\n-old\n+first\n");
     let second = parse_unified_diff("--- second.rs\n+++ second.rs\n@@ -1 +1 @@\n-old\n+second\n");
     let mut app = App::new_watching(10, first);
-    app.session.viewed_files.insert(0);
+    app.session.reviewed_files.insert(0);
 
     app.update(Command::BatchReceived {
         number: 11,
         files: second,
+        origin: RevisionOrigin::Human("Ada".into()),
     });
 
     assert_eq!(app.batch_number, 11);
+    assert_eq!(app.revision_origin, RevisionOrigin::Human("Ada".into()));
     assert_eq!(app.current().path, "second.rs");
-    assert!(app.session.viewed_files.is_empty());
+    assert!(app.session.reviewed_files.is_empty());
 
     app.key(KeyEvent::new(
         KeyCode::Char(PREVIOUS_BATCH_KEY),
         KeyModifiers::NONE,
     ));
     assert_eq!(app.batch_number, 10);
+    assert_eq!(app.revision_origin, RevisionOrigin::Observed);
     assert_eq!(app.current().path, "first.rs");
-    assert!(app.session.viewed_files.contains(&0));
+    assert!(app.session.reviewed_files.contains(&0));
 
     app.key(KeyEvent::new(
         KeyCode::Char(NEXT_BATCH_KEY),
         KeyModifiers::NONE,
     ));
     assert_eq!(app.batch_number, 11);
+    assert_eq!(app.revision_origin, RevisionOrigin::Human("Ada".into()));
+}
+
+#[test]
+fn piped_context_precedes_numbered_watch_revisions() {
+    let context =
+        parse_unified_diff("--- context.rs\n+++ context.rs\n@@ -1 +1 @@\n-old\n+context\n");
+    let live = parse_unified_diff("--- live.rs\n+++ live.rs\n@@ -1 +1 @@\n-old\n+live\n");
+    let mut app = App::new_watching_context(context);
+
+    assert_eq!(app.batch_number, 0);
+    assert_eq!(app.revision_origin, RevisionOrigin::Context);
+    app.update(Command::BatchReceived {
+        number: 1,
+        files: live,
+        origin: RevisionOrigin::Observed,
+    });
+    assert_eq!(app.batch_number, 1);
+    assert_eq!(app.current().path, "live.rs");
+
+    app.key(KeyEvent::new(
+        KeyCode::Char(PREVIOUS_BATCH_KEY),
+        KeyModifiers::NONE,
+    ));
+    assert_eq!(app.batch_number, 0);
+    assert_eq!(app.revision_origin, RevisionOrigin::Context);
+    assert_eq!(app.current().path, "context.rs");
+}
+
+#[test]
+fn shift_s_copies_only_the_current_human_revision() {
+    let first = parse_unified_diff("--- first.rs\n+++ first.rs\n@@ -1 +1 @@\n-old\n+first\n");
+    let second = parse_unified_diff("--- second.rs\n+++ second.rs\n@@ -1 +1 @@\n-old\n+second\n");
+    let mut app = App::new_watching(10, first);
+    let key = KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT);
+
+    assert_eq!(app.update(Command::Key(key)), Effect::None);
+    app.update(Command::BatchReceived {
+        number: 11,
+        files: second,
+        origin: RevisionOrigin::Human("Ada".into()),
+    });
+
+    let Effect::Copy(handoff) = app.update(Command::Key(key)) else {
+        panic!("Shift+S should copy a human revision");
+    };
+    assert!(handoff.contains("Ada revision #11"));
+    assert!(handoff.contains("- second.rs"));
+    assert!(handoff.contains("-old\n+second"));
+    assert!(handoff.contains("pair-programming input from Ada"));
 }
 
 #[test]
@@ -76,6 +129,7 @@ fn incoming_batch_does_not_interrupt_reviewing_history() {
     app.update(Command::BatchReceived {
         number: 2,
         files: files(),
+        origin: RevisionOrigin::Observed,
     });
     app.key(KeyEvent::new(
         KeyCode::Char(PREVIOUS_BATCH_KEY),
@@ -85,6 +139,7 @@ fn incoming_batch_does_not_interrupt_reviewing_history() {
     app.update(Command::BatchReceived {
         number: 3,
         files: files(),
+        origin: RevisionOrigin::Observed,
     });
 
     assert_eq!(app.batch_number, 1);
@@ -102,7 +157,32 @@ fn e_requests_opening_the_current_file_in_editor() {
             KeyCode::Char('e'),
             KeyModifiers::NONE,
         ))),
-        Effect::OpenFile("src/a.rs".into())
+        Effect::OpenEditor(EditorTarget {
+            path: "src/a.rs".into(),
+            line: None,
+            column: None,
+            capture_changes: false,
+        })
+    );
+}
+
+#[test]
+fn s_opens_the_current_code_location_for_editing() {
+    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -9 +9 @@\n-old\n+    new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.diff_pane.cursor = 2;
+
+    assert_eq!(
+        app.update(Command::Key(KeyEvent::new(
+            KeyCode::Char('s'),
+            KeyModifiers::NONE,
+        ))),
+        Effect::OpenEditor(EditorTarget {
+            path: "src/a.rs".into(),
+            line: Some(9),
+            column: Some(5),
+            capture_changes: true,
+        })
     );
 }
 
@@ -492,9 +572,9 @@ fn enter_inside_existing_range_starts_a_new_comment() {
 }
 
 #[test]
-fn u_restores_the_last_deleted_thread() {
+fn u_restores_the_last_deleted_comment() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n line\n";
-    let note = Comment {
+    let comment = Comment {
         id: "t-001".into(),
         path: "a.rs".into(),
         excerpt: " line".into(),
@@ -506,14 +586,14 @@ fn u_restores_the_last_deleted_thread() {
         anchor_new: Some(1),
         text: "Why?".into(),
     };
-    let mut app = App::new(parse_unified_diff(diff), vec![note.clone()]);
+    let mut app = App::new(parse_unified_diff(diff), vec![comment.clone()]);
     app.diff_pane.cursor = 1;
 
     app.key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE));
     assert!(app.session.comments.is_empty());
     app.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE));
 
-    assert_eq!(app.session.comments, vec![note]);
+    assert_eq!(app.session.comments, vec![comment]);
 }
 
 #[test]
@@ -581,12 +661,17 @@ fn shift_y_copies_comments_from_all_watched_batches() {
         text: text.into(),
     };
     let mut app = App::new_watching(1, files());
-    app.session.comments.push(comment("first", "First batch"));
+    app.session
+        .comments
+        .push(comment("first", "First revision"));
     app.update(Command::BatchReceived {
         number: 2,
         files: files(),
+        origin: RevisionOrigin::Observed,
     });
-    app.session.comments.push(comment("second", "Second batch"));
+    app.session
+        .comments
+        .push(comment("second", "Second revision"));
 
     let outcome = app.key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT));
 
@@ -594,14 +679,14 @@ fn shift_y_copies_comments_from_all_watched_batches() {
         panic!("Shift+Y should copy comments");
     };
     assert!(text.contains("1. a.rs"));
-    assert!(text.contains("Comment: First batch"));
+    assert!(text.contains("Comment: First revision"));
     assert!(text.contains("2. a.rs"));
-    assert!(text.contains("Comment: Second batch"));
-    assert!(text.find("First batch") < text.find("Second batch"));
+    assert!(text.contains("Comment: Second revision"));
+    assert!(text.find("First revision") < text.find("Second revision"));
 }
 
 #[test]
-fn shift_y_skips_comments_from_viewed_files_in_every_batch() {
+fn shift_y_skips_comments_from_reviewed_files_in_every_batch() {
     let files = || parse_unified_diff("--- a.rs\n+++ a.rs\n@@ -1 +1 @@\n-old\n+new\n");
     let comment = |id: &str, text: &str| Comment {
         id: id.into(),
@@ -618,23 +703,24 @@ fn shift_y_skips_comments_from_viewed_files_in_every_batch() {
     let mut app = App::new_watching(1, files());
     app.session
         .comments
-        .push(comment("first", "Reviewed batch"));
-    app.session.viewed_files.insert(0);
+        .push(comment("first", "Reviewed revision"));
+    app.session.reviewed_files.insert(0);
     app.update(Command::BatchReceived {
         number: 2,
         files: files(),
+        origin: RevisionOrigin::Observed,
     });
     app.session
         .comments
-        .push(comment("second", "Pending batch"));
+        .push(comment("second", "Pending revision"));
 
     let outcome = app.key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT));
 
     let Outcome::Yank(text) = outcome else {
-        panic!("Shift+Y should copy comments from unviewed files");
+        panic!("Shift+Y should copy comments from unreviewed files");
     };
-    assert!(!text.contains("Reviewed batch"));
-    assert!(text.contains("Pending batch"));
+    assert!(!text.contains("Reviewed revision"));
+    assert!(text.contains("Pending revision"));
 }
 
 #[test]
@@ -844,6 +930,19 @@ fn c_selects_a_diff_range_for_commenting() {
     assert_eq!(app.session.comments[0].new_start, Some(1));
     assert_eq!(app.session.comments[0].new_end, Some(2));
     assert_eq!(app.session.comments[0].excerpt, " one\n two");
+
+    app.statusline.clear_notice();
+    let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("Comment #1 · L1–2"));
+    assert!(rendered.contains("Enter edit"));
 }
 
 #[test]
@@ -873,21 +972,20 @@ fn sidebar_file_statuses_are_compact_and_color_coded() {
     };
 
     assert_eq!(text(FileStatus::Added), "+ ");
-    assert_eq!(text(FileStatus::Deleted), "- ");
-    assert_eq!(text(FileStatus::Modified), "+-");
-    assert_eq!(text(FileStatus::Renamed), "R ");
+    assert_eq!(text(FileStatus::Deleted), "− ");
+    assert_eq!(text(FileStatus::Modified), "~ ");
+    assert_eq!(text(FileStatus::Renamed), "→ ");
     let modified = file_status_spans(FileStatus::Modified);
-    assert_eq!(modified[0].style.fg, Some(GREEN));
-    assert_eq!(modified[1].style.fg, Some(RED));
+    assert_eq!(modified[0].style.fg, Some(BLUE));
 }
 
 #[test]
-fn space_marks_files_viewed_and_advances_to_the_next_unviewed_file() {
+fn space_marks_files_reviewed_and_advances_to_the_next_unreviewed_file() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old a\n+new a\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old b\n+new b\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
 
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert!(app.session.viewed_files.contains(&0));
+    assert!(app.session.reviewed_files.contains(&0));
     assert_eq!(app.diff_pane.file, 1);
     app.statusline.clear_notice();
 
@@ -900,20 +998,47 @@ fn space_marks_files_viewed_and_advances_to_the_next_unviewed_file() {
         .iter()
         .map(|cell| cell.symbol())
         .collect::<String>();
+    assert!(rendered.contains("a.rs"));
     assert!(rendered.contains('✓'));
-    assert!(rendered.contains("1/2 reviewed · 0 notes"));
+    assert!(rendered.contains("1 left"));
+    assert!(rendered.contains("0 comments"));
 
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert_eq!(app.session.viewed_files.len(), 2);
+    assert_eq!(app.session.reviewed_files.len(), 2);
+    app.statusline.clear_notice();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let completed = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(completed.contains("done"));
+    assert!(completed.contains("2 files"));
+    assert!(completed.contains("Review complete"));
+
     assert_eq!(app.diff_pane.file, 1);
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
-    assert!(!app.session.viewed_files.contains(&1));
+    assert!(!app.session.reviewed_files.contains(&1));
     assert_eq!(app.diff_pane.file, 1);
 }
 
 #[test]
 fn inline_comment_is_a_full_width_visual_card() {
-    let lines = inline_message_lines("Please simplify\n```rust\nfix();\n```", 60);
+    let comment = Comment {
+        id: "t-001".into(),
+        path: "a.rs".into(),
+        excerpt: " code".into(),
+        old_start: Some(3),
+        old_end: Some(3),
+        new_start: Some(3),
+        new_end: Some(4),
+        anchor_old: Some(3),
+        anchor_new: Some(4),
+        text: "Please simplify\n```rust\nfix();\n```".into(),
+    };
+    let lines = inline_comment_lines(&comment, 1, 60);
     assert_eq!(lines.len(), 4);
     assert!(lines.iter().all(|line| line.width() == 60));
     assert_eq!(lines[0].spans[0].style.bg, Some(BG));
@@ -925,14 +1050,24 @@ fn inline_comment_is_a_full_width_visual_card() {
             .all(|span| span.style.bg == Some(COMMENT_BG))
     );
     assert_eq!(lines[0].spans[1].style.fg, Some(COMMENT));
+    assert!(lines[0].spans[1].content.contains("Comment #1 · L3–4"));
 }
 
 #[test]
 fn inline_comments_wrap_words_and_long_tokens_to_the_viewport() {
-    let lines = inline_message_lines(
-        "This comment is deliberately long enough to wrap without disappearing.\n012345678901234567890123456789",
-        42,
-    );
+    let comment = Comment {
+        id: "t-001".into(),
+        path: "a.rs".into(),
+        excerpt: " code".into(),
+        old_start: Some(1),
+        old_end: Some(1),
+        new_start: Some(1),
+        new_end: Some(1),
+        anchor_old: Some(1),
+        anchor_new: Some(1),
+        text: "This comment is deliberately long enough to wrap without disappearing.\n012345678901234567890123456789".into(),
+    };
+    let lines = inline_comment_lines(&comment, 1, 42);
 
     assert!(lines.len() >= 4);
     assert!(lines.iter().all(|line| line.width() == 42));
@@ -1035,7 +1170,7 @@ fn terminal_shift_enter_inserts_newline_instead_of_j() {
 #[test]
 fn sidebar_arrows_continue_after_selecting_a_comment() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n one\n two\n";
-    let note = |line, text: &str| Comment {
+    let comment = |line, text: &str| Comment {
         id: format!("t-{line:03}"),
         path: "a.rs".into(),
         excerpt: format!(" {text}"),
@@ -1049,15 +1184,24 @@ fn sidebar_arrows_continue_after_selecting_a_comment() {
     };
     let mut app = App::new(
         parse_unified_diff(diff),
-        vec![note(1, "one"), note(2, "two")],
+        vec![comment(1, "one"), comment(2, "two")],
     );
-    app.select_side_target(SideTarget::Comment { file: 0, note: 0 }, true);
+    app.select_side_target(
+        SideTarget::Comment {
+            file: 0,
+            comment: 0,
+        },
+        true,
+    );
 
     app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
 
     assert_eq!(
         app.file_tree.selection(),
-        Some(SideTarget::Comment { file: 0, note: 1 })
+        Some(SideTarget::Comment {
+            file: 0,
+            comment: 1
+        })
     );
     assert_eq!(app.focus, Focus::Files);
 }

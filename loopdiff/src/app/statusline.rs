@@ -1,6 +1,6 @@
 use super::{
-    BG, BLUE, COMMENT, Focus, GREEN, MUTED, RED, SELECT_BG, SURFACE, TEXT, diff_pane::DiffPane,
-    file_tree::FileTree, render::crop_spans, session::Session,
+    BLUE, COMMENT, Focus, GREEN, MUTED, RED, SURFACE, TEXT, diff_pane::DiffPane,
+    file_tree::FileTree, render::crop_spans, session::Session, view_helpers::anchor_position,
 };
 use ratatui::{
     Frame,
@@ -21,7 +21,7 @@ pub struct View<'a> {
     pub session: &'a Session,
     pub pane: &'a DiffPane,
     pub tree: &'a FileTree,
-    pub batch: Option<(usize, usize, u64)>,
+    pub revision: Option<(usize, usize, u64, super::RevisionOrigin)>,
 }
 
 impl Statusline {
@@ -39,7 +39,7 @@ impl Statusline {
             session,
             pane,
             tree,
-            batch,
+            revision,
         } = view;
         let width = area.width as usize;
         let (mut left, right) = if focus == Focus::Filter {
@@ -58,28 +58,44 @@ impl Statusline {
             };
             (prompt, right)
         } else {
+            let current = pane.current(&session.files);
+            let on_comment = session.comments.iter().any(|comment| {
+                comment.path == current.path
+                    && anchor_position(current, comment) == Some(pane.cursor)
+            });
             let (mode, color) = match focus {
                 Focus::Files => (" FILES ", COMMENT),
                 Focus::Editor => (" COMMENT ", GREEN),
                 _ if pane.visual_mode.is_some() => (" VISUAL ", COMMENT),
                 _ if pane.range_anchor.is_some() => (" COMMENT SELECT ", BLUE),
+                _ if on_comment => (" COMMENT ", COMMENT),
                 _ if pane.file_view => (" FILE VIEW ", BLUE),
                 _ => (" NORMAL ", BLUE),
-            };
-            let current = pane.current(&session.files);
-            let detail = if pane.vim_command.is_empty() {
-                current.path.clone()
-            } else {
-                pane.vim_command.clone()
             };
             let right = if let Some((message, shown_at)) = &self.notice
                 && shown_at.elapsed() < Duration::from_secs(4)
             {
                 format!(" {message} · ? help ")
             } else {
-                let state = match focus {
+                let review_complete = !session.files.is_empty()
+                    && session.reviewed_files.len() == session.files.len();
+                let state: String = match focus {
                     Focus::Files => " j/k navigate · Space reviewed ".into(),
                     Focus::Editor => " Enter save · Shift+Enter newline · Esc cancel ".into(),
+                    _ if pane.range_anchor.is_some() => {
+                        " j/k extend · Enter comment · c cancel ".into()
+                    }
+                    _ if pane.visual_mode.is_some() => {
+                        " h/j/k/l select · y copy · Esc cancel ".into()
+                    }
+                    _ if on_comment => {
+                        " Enter edit · [ / ] browse comments · Space reviewed ".into()
+                    }
+                    _ if review_complete => " ✓ Review complete · Shift+Y copy comments ".into(),
+                    _ if session.reviewed_files.contains(&pane.file) => {
+                        " Space reopen review · [/] comments · ? help ".into()
+                    }
+                    _ if pane.file_view => " o diff view · Space reviewed · ? help ".into(),
                     _ => {
                         let line = &pane.active_lines(&session.files)[pane.cursor];
                         let location = match (line.old, line.new) {
@@ -88,31 +104,32 @@ impl Statusline {
                             _ => "hunk".into(),
                         };
                         let percent = (pane.cursor + 1) * 100 / current.lines.len().max(1);
-                        format!(" {location} · {percent}% ")
+                        format!(" c comment · Space reviewed · {location} · {percent}% ")
                     }
                 };
-                format!(" ? help ·{state}")
+                state
             };
             (
                 {
-                    let mut spans = vec![
-                        Span::styled(
-                            mode,
-                            Style::default()
-                                .fg(BG)
-                                .bg(color)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(format!(" {detail}"), Style::default().fg(TEXT)),
-                    ];
-                    if let Some((position, total, number)) = *batch {
-                        spans.push(Span::styled("  ", Style::default()));
+                    let mut spans = vec![Span::styled(
+                        mode,
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    )];
+                    if !pane.vim_command.is_empty() {
                         spans.push(Span::styled(
-                            format!(" BATCH {position}/{total} · #{number} "),
-                            Style::default()
-                                .fg(BLUE)
-                                .bg(SELECT_BG)
-                                .add_modifier(Modifier::BOLD),
+                            format!(" {}", pane.vim_command),
+                            Style::default().fg(TEXT),
+                        ));
+                    }
+                    if let Some((position, total, number, origin)) = revision.as_ref() {
+                        let identity = if origin == &super::RevisionOrigin::Context {
+                            "context".to_owned()
+                        } else {
+                            format!("#{number} · {}", origin.as_str())
+                        };
+                        spans.push(Span::styled(
+                            format!(" · revision {position}/{total} · {identity}"),
+                            Style::default().fg(MUTED),
                         ));
                     }
                     spans
