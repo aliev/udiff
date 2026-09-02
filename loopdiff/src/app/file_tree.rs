@@ -365,11 +365,11 @@ impl FileTree {
                         let reviewed = view.reviewed_files.contains(&file_index);
                         let current = file_index == view.current_file;
                         let mut spans = vec![
-                            Span::raw(indent),
                             Span::styled(
                                 if current { "▌" } else { " " },
                                 Style::default().fg(if current { super::BLUE } else { SURFACE }),
                             ),
+                            Span::raw(indent),
                             Span::styled(
                                 if reviewed { "✓ " } else { "  " },
                                 Style::default().fg(if reviewed { super::GREEN } else { MUTED }),

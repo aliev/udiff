@@ -212,6 +212,20 @@ fn renders_complete_layout() {
 }
 
 #[test]
+fn current_file_marker_stays_at_the_left_edge_for_nested_paths() {
+    let diff = "diff --git a/docs/main.rs b/docs/main.rs\n--- a/docs/main.rs\n+++ b/docs/main.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    assert_eq!(
+        terminal.backend().buffer().cell((0, 3)).unwrap().symbol(),
+        "▌"
+    );
+}
+
+#[test]
 fn long_code_lines_wrap_in_diff_and_file_views() {
     let code = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789WRAPPED";
     let diff = format!(
