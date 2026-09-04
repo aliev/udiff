@@ -1,4 +1,23 @@
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub enum CommentBody {
+    Text(String),
+    Suggestion { replacement: String },
+}
+
+impl CommentBody {
+    pub fn text(&self) -> &str {
+        match self {
+            Self::Text(text) => text,
+            Self::Suggestion { replacement } => replacement,
+        }
+    }
+
+    pub fn is_suggestion(&self) -> bool {
+        matches!(self, Self::Suggestion { .. })
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Comment {
     pub id: String,
     pub path: String,
@@ -9,7 +28,7 @@ pub struct Comment {
     pub new_end: Option<u32>,
     pub anchor_old: Option<u32>,
     pub anchor_new: Option<u32>,
-    pub text: String,
+    pub body: CommentBody,
 }
 
 impl Comment {
@@ -18,7 +37,7 @@ impl Comment {
     }
 
     pub fn first_text(&self) -> &str {
-        &self.text
+        self.body.text()
     }
 
     pub fn short_location(&self) -> String {
@@ -41,16 +60,35 @@ pub fn format_for_clipboard(comments: &[Comment]) -> String {
     let mut output = String::new();
     for (index, comment) in comments.iter().enumerate() {
         output.push_str(&format!(
-            "{}{}. {} ({})\nSelected diff:\n{}\nComment: {}",
+            "{}{}. {} ({})\nSelected diff:\n{}\n{}",
             if output.is_empty() { "" } else { "\n\n" },
             index + 1,
             comment.path,
             location(comment),
             comment.excerpt.trim_end(),
-            comment.text.trim()
+            format_body(&comment.body),
         ));
     }
     output
+}
+
+fn format_body(body: &CommentBody) -> String {
+    match body {
+        CommentBody::Text(text) => format!("Comment: {}", text.trim()),
+        CommentBody::Suggestion { replacement } => {
+            let fence = suggestion_fence(replacement);
+            format!("Suggested replacement:\n{fence}suggestion\n{replacement}\n{fence}")
+        }
+    }
+}
+
+fn suggestion_fence(replacement: &str) -> String {
+    let longest_run = replacement
+        .split(|character| character != '`')
+        .map(str::len)
+        .max()
+        .unwrap_or(0);
+    "`".repeat(3.max(longest_run + 1))
 }
 
 fn location(comment: &Comment) -> String {
@@ -86,7 +124,7 @@ mod tests {
             new_end: Some(4),
             anchor_old: None,
             anchor_new: Some(4),
-            text: "Please simplify".into(),
+            body: CommentBody::Text("Please simplify".into()),
         };
 
         assert_eq!(
@@ -94,5 +132,33 @@ mod tests {
             "1. src/main.rs (old lines 3; new lines 3-4)\nSelected diff:\n-old\n+new\nComment: Please simplify"
         );
         assert_eq!(comment.short_location(), "L3–4");
+    }
+
+    #[test]
+    fn clipboard_format_preserves_suggestion_whitespace() {
+        let suggestion = Comment {
+            id: "s-001".into(),
+            path: "src/main.rs".into(),
+            excerpt: "+    old();".into(),
+            old_start: None,
+            old_end: None,
+            new_start: Some(3),
+            new_end: Some(3),
+            anchor_old: None,
+            anchor_new: Some(3),
+            body: CommentBody::Suggestion {
+                replacement: "    new();\n".into(),
+            },
+        };
+
+        assert_eq!(
+            format_for_clipboard(&[suggestion]),
+            "1. src/main.rs (new lines 3)\nSelected diff:\n+    old();\nSuggested replacement:\n```suggestion\n    new();\n\n```"
+        );
+    }
+
+    #[test]
+    fn suggestion_fence_is_longer_than_backticks_in_the_replacement() {
+        assert_eq!(suggestion_fence("let fence = \"```\";"), "````");
     }
 }

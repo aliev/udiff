@@ -8,8 +8,8 @@ Loopdiff is a small Rust terminal UI for viewing unified diffs received on
 standard input. Its `--watch` mode uses the Diffwatch library to observe a
 directory in memory and keeps independent review state for each completed
 batch. It presents a GitHub-inspired diff, lets the user attach temporary
-comments to lines or ranges, and copies them as compact plain text through OSC
-52.
+comments or code suggestions to lines or ranges, and copies them as compact
+plain text through OSC 52.
 
 Keep the application fast, keyboard-friendly, visually quiet, and independent
 of Git repositories or review persistence formats.
@@ -21,7 +21,7 @@ of Git repositories or review persistence formats.
 - `src/terminal.rs`: terminal lifecycle, event loop, and external effects.
 - `src/model.rs`: unified-diff parsing, file/line models, syntax highlighting.
 - `src/model/highlight.rs`: the Syntect implementation.
-- `src/comment.rs`: the in-memory comment model.
+- `src/comment.rs`: the in-memory comment and code-suggestion model.
 - `src/app.rs`: the UI composition root; it only declares the assembled parts.
 - `src/app/command.rs`: the `Command`/`Effect` boundary.
 - `src/app/session.rs`: diff, comments, reviewed state, and comment history.
@@ -62,13 +62,14 @@ cat changes.patch | cargo run --release
 ## Architecture
 
 - Diff semantics belong in `model.rs`.
-- Comment data belongs in `comment.rs`.
+- Comment and suggestion data belongs in `comment.rs`.
 - Interaction and rendering state belong in `app.rs`.
 - Input and terminal lifecycle belong in `main.rs`.
 
 Do not add Git subprocess behavior, repository discovery, persistent review
-formats, agent protocols, roles, replies, or authors. Comments exist only for
-the current process and `Shift+Y` exports them as plain text for the clipboard.
+formats, agent protocols, roles, replies, or authors. Review items exist only
+for the current process and `Shift+Y` exports them as plain text for the
+clipboard.
 Keep the Diffwatch watcher adapter in `input.rs` and its review-state
 transitions in `app.rs`.
 
@@ -79,12 +80,13 @@ transitions in `app.rs`.
 - The sidebar shows comments as selectable children of their file.
 - `/` opens search in the shared statusline and filters the sidebar.
 - `gg` jumps to the start and `{number}gg` jumps to a visible old/new line.
-- `c` starts or clears the diff-line range used for a comment.
+- `c` starts or clears the diff-line range used for review.
+- `r` suggests a replacement for the current line or selected new-side range.
 - `Space` toggles the current file's in-memory reviewed state.
 - `v` and `Shift+V` start characterwise and linewise visual selection.
 - `y` copies visual selection without diff markers.
-- `Shift+Y` copies all comments as compact plain text without metadata or
-  instructions.
+- `Shift+Y` copies all comments and suggestions as compact plain text without
+  metadata or instructions.
 - New range comments render below the visually lowest selected line.
 - Enter edits an exact anchored comment and creates a comment elsewhere.
 - In the editor, Enter saves, Shift+Enter inserts a newline, and Esc cancels.

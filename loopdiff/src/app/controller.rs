@@ -1,7 +1,7 @@
 use super::{
     App, BG, BatchState, Focus, NEXT_BATCH_KEY, Outcome, PREVIOUS_BATCH_KEY,
     command::{Command, EditorTarget, Effect, RevisionOrigin},
-    comment_editor::{Action as EditorAction, CommentEditor},
+    comment_editor::{Action as EditorAction, CommentEditor, Mode as EditorMode},
     diff_pane::{FileViewAction, KeyAction as DiffKeyAction},
     file_tree::{SearchAction, Target as SideTarget, View as FileTreeView},
     help::{EventState as HelpEventState, Help},
@@ -139,6 +139,14 @@ impl App {
             .iter()
             .find(|n| n.path == *path && anchor_position(self.current(), n) == Some(p))
     }
+    pub(super) fn anchored_suggestion_at(&self, p: usize) -> Option<&Comment> {
+        let path = &self.current().path;
+        self.session.comments.iter().find(|comment| {
+            comment.path == *path
+                && comment.body.is_suggestion()
+                && anchor_position(self.current(), comment) == Some(p)
+        })
+    }
     pub fn draw(&mut self, frame: &mut Frame) {
         let root = frame.area();
         frame.render_widget(Block::default().style(Style::default().bg(BG)), root);
@@ -187,6 +195,7 @@ impl App {
                 session: &self.session,
                 pane: &self.diff_pane,
                 tree: &self.file_tree,
+                editor: &self.comment_editor,
                 revision: self.watching.then_some((
                     self.active_batch + 1,
                     self.batch_states.len(),
@@ -396,6 +405,9 @@ impl App {
                     });
                 }
             }
+            KeyCode::Char('r') if self.focus == Focus::Diff && !self.diff_pane.file_view => {
+                self.open_suggestion_editor()
+            }
             KeyCode::Char(' ') => self.toggle_file_reviewed(),
             KeyCode::Enter if self.diff_pane.visual_mode.is_none() && !self.diff_pane.file_view => {
                 self.open_editor()
@@ -596,33 +608,103 @@ impl App {
         let text = existing
             .as_ref()
             .map_or(String::new(), |comment| comment.first_text().to_owned());
+        let mode = existing.as_ref().map_or(EditorMode::Comment, |comment| {
+            if comment.body.is_suggestion() {
+                EditorMode::Suggestion
+            } else {
+                EditorMode::Comment
+            }
+        });
         let range_bottom = self.selected_bounds().1;
         let anchor = existing
             .as_ref()
             .and_then(|n| anchor_position(self.current(), n))
             .unwrap_or(range_bottom);
-        self.comment_editor
-            .open(text, anchor, existing.as_ref().map(|comment| comment.key()));
+        self.comment_editor.open(
+            text,
+            anchor,
+            existing.as_ref().map(|comment| comment.key()),
+            mode,
+        );
         self.focus = Focus::Editor
     }
+
+    pub(super) fn open_suggestion_editor(&mut self) {
+        let range = self.selected_bounds();
+        let existing = self
+            .anchored_suggestion_at(self.diff_pane.cursor)
+            .filter(|_| self.diff_pane.range_anchor.is_none())
+            .cloned();
+        let replacement = if let Some(comment) = &existing {
+            comment.first_text().to_owned()
+        } else {
+            match self
+                .session
+                .suggestion_replacement(self.diff_pane.file, range)
+            {
+                Ok(replacement) => replacement,
+                Err(error) => {
+                    self.notice(error.message());
+                    return;
+                }
+            }
+        };
+        let anchor = existing
+            .as_ref()
+            .and_then(|comment| anchor_position(self.current(), comment))
+            .unwrap_or(range.1);
+        self.comment_editor.open(
+            replacement,
+            anchor,
+            existing.as_ref().map(|comment| comment.key()),
+            EditorMode::Suggestion,
+        );
+        self.focus = Focus::Editor;
+    }
+
     pub(super) fn save_editor(&mut self) {
         let range = self.selected_bounds();
         let anchor = self.comment_editor.anchor.unwrap_or(range.1);
         let editing = self.comment_editor.editing_key.is_some();
-        let has_text = !self.comment_editor.text.trim().is_empty();
-        if !self.session.save_comment(
-            self.diff_pane.file,
-            range,
-            anchor,
-            self.comment_editor.editing_key.take(),
-            &self.comment_editor.text,
-        ) {
-            return;
+        let mode = self.comment_editor.mode;
+        let text = self.comment_editor.text.clone();
+        let editing_key = self.comment_editor.editing_key.clone();
+        let has_text = !text.trim().is_empty();
+        match mode {
+            EditorMode::Comment => {
+                if !self.session.save_comment(
+                    self.diff_pane.file,
+                    range,
+                    anchor,
+                    editing_key,
+                    &text,
+                ) {
+                    return;
+                }
+            }
+            EditorMode::Suggestion => {
+                if let Err(error) = self.session.save_suggestion(
+                    self.diff_pane.file,
+                    range,
+                    anchor,
+                    editing_key,
+                    &text,
+                ) {
+                    self.notice(error.message());
+                    return;
+                }
+            }
         }
         self.diff_pane.range_anchor = None;
         self.focus = Focus::Diff;
         self.comment_editor.close();
-        self.notice(if !has_text {
+        self.notice(if mode == EditorMode::Suggestion && text.is_empty() {
+            "deletion suggestion saved · Space when file is ready"
+        } else if mode == EditorMode::Suggestion && editing {
+            "suggestion updated"
+        } else if mode == EditorMode::Suggestion {
+            "suggestion saved · Space when file is ready"
+        } else if !has_text {
             "empty comment discarded"
         } else if editing {
             "comment updated"

@@ -21,10 +21,10 @@ cargo build --release
 ```
 
 Keep changes focused and add a regression test for user-visible behavior. Update
-the README when changing the CLI, key bindings, or review Markdown contract.
+the README when changing the CLI, key bindings, or clipboard review contract.
 
-## Review format compatibility
+## Clipboard review compatibility
 
-The Markdown format is a public interface. Backward-incompatible changes must
-increment `format_version` and add an explicit parser for the new version.
-Never silently reinterpret an existing version.
+The compact plain-text format copied by `Shift+Y` is a public interface. Keep
+comments and suggestions unambiguous and cover format changes with exact-output
+tests.

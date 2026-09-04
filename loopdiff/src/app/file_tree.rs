@@ -194,9 +194,14 @@ impl FileTree {
                 if text.chars().count() > 20 {
                     short.push('…');
                 }
+                let marker = if comment.body.is_suggestion() {
+                    "S#"
+                } else {
+                    "#"
+                };
                 out.push(Entry {
                     label: format!(
-                        "{}  #{}  {short}",
+                        "{}  {marker}{}  {short}",
                         comment.short_location(),
                         file_comment_number + 1
                     ),

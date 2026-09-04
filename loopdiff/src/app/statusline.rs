@@ -1,6 +1,11 @@
 use super::{
-    BLUE, COMMENT, Focus, GREEN, MUTED, RED, SURFACE, TEXT, diff_pane::DiffPane,
-    file_tree::FileTree, render::crop_spans, session::Session, view_helpers::anchor_position,
+    BLUE, COMMENT, Focus, GREEN, MUTED, RED, SURFACE, TEXT,
+    comment_editor::{CommentEditor, Mode as EditorMode},
+    diff_pane::DiffPane,
+    file_tree::FileTree,
+    render::crop_spans,
+    session::Session,
+    view_helpers::anchor_position,
 };
 use ratatui::{
     Frame,
@@ -21,6 +26,7 @@ pub struct View<'a> {
     pub session: &'a Session,
     pub pane: &'a DiffPane,
     pub tree: &'a FileTree,
+    pub editor: &'a CommentEditor,
     pub revision: Option<(usize, usize, u64, super::RevisionOrigin)>,
 }
 
@@ -39,6 +45,7 @@ impl Statusline {
             session,
             pane,
             tree,
+            editor,
             revision,
         } = view;
         let width = area.width as usize;
@@ -59,16 +66,20 @@ impl Statusline {
             (prompt, right)
         } else {
             let current = pane.current(&session.files);
-            let on_comment = session.comments.iter().any(|comment| {
+            let active_comment = session.comments.iter().find(|comment| {
                 comment.path == current.path
                     && anchor_position(current, comment) == Some(pane.cursor)
             });
             let (mode, color) = match focus {
                 Focus::Files => (" FILES ", COMMENT),
+                Focus::Editor if editor.mode == EditorMode::Suggestion => (" SUGGESTION ", GREEN),
                 Focus::Editor => (" COMMENT ", GREEN),
                 _ if pane.visual_mode.is_some() => (" VISUAL ", COMMENT),
-                _ if pane.range_anchor.is_some() => (" COMMENT SELECT ", BLUE),
-                _ if on_comment => (" COMMENT ", COMMENT),
+                _ if pane.range_anchor.is_some() => (" REVIEW SELECT ", BLUE),
+                _ if active_comment.is_some_and(|comment| comment.body.is_suggestion()) => {
+                    (" SUGGESTION ", GREEN)
+                }
+                _ if active_comment.is_some() => (" COMMENT ", COMMENT),
                 _ if pane.file_view => (" FILE VIEW ", BLUE),
                 _ => (" NORMAL ", BLUE),
             };
@@ -83,12 +94,12 @@ impl Statusline {
                     Focus::Files => " j/k navigate · Space reviewed ".into(),
                     Focus::Editor => " Enter save · Shift+Enter newline · Esc cancel ".into(),
                     _ if pane.range_anchor.is_some() => {
-                        " j/k extend · Enter comment · c cancel ".into()
+                        " j/k extend · Enter comment · r suggest · c cancel ".into()
                     }
                     _ if pane.visual_mode.is_some() => {
                         " h/j/k/l select · y copy · Esc cancel ".into()
                     }
-                    _ if on_comment => {
+                    _ if active_comment.is_some() => {
                         " Enter edit · [ / ] browse comments · Space reviewed ".into()
                     }
                     _ if review_complete => " ✓ Review complete · Shift+Y copy comments ".into(),
@@ -104,7 +115,9 @@ impl Statusline {
                             _ => "hunk".into(),
                         };
                         let percent = (pane.cursor + 1) * 100 / current.lines.len().max(1);
-                        format!(" c comment · Space reviewed · {location} · {percent}% ")
+                        format!(
+                            " c comment · r suggest · Space reviewed · {location} · {percent}% "
+                        )
                     }
                 };
                 state

@@ -2,7 +2,7 @@ use super::file_tree::Target as SideTarget;
 use super::render::{crop_spans, file_status_spans, inline_comment_lines};
 use super::view_helpers::*;
 use super::*;
-use crate::comment::Comment;
+use crate::comment::{Comment, CommentBody};
 use crate::model::{FileStatus, parse_unified_diff};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -573,7 +573,7 @@ fn enter_inside_existing_range_starts_a_new_comment() {
         new_end: Some(3),
         anchor_old: Some(3),
         anchor_new: Some(3),
-        text: "Outer".into(),
+        body: CommentBody::Text("Outer".into()),
     };
     let mut app = App::new(parse_unified_diff(diff), vec![outer]);
     app.diff_pane.cursor = 2;
@@ -598,7 +598,7 @@ fn u_restores_the_last_deleted_comment() {
         new_end: Some(1),
         anchor_old: Some(1),
         anchor_new: Some(1),
-        text: "Why?".into(),
+        body: CommentBody::Text("Why?".into()),
     };
     let mut app = App::new(parse_unified_diff(diff), vec![comment.clone()]);
     app.diff_pane.cursor = 1;
@@ -638,7 +638,7 @@ fn shift_y_copies_comments_as_plain_text() {
         new_end: Some(1),
         anchor_old: None,
         anchor_new: Some(1),
-        text: text.into(),
+        body: CommentBody::Text(text.into()),
     };
     let mut app = App::new(
         parse_unified_diff(diff),
@@ -672,7 +672,7 @@ fn shift_y_copies_comments_from_all_watched_batches() {
         new_end: Some(1),
         anchor_old: None,
         anchor_new: Some(1),
-        text: text.into(),
+        body: CommentBody::Text(text.into()),
     };
     let mut app = App::new_watching(1, files());
     app.session
@@ -712,7 +712,7 @@ fn shift_y_skips_comments_from_reviewed_files_in_every_batch() {
         new_end: Some(1),
         anchor_old: None,
         anchor_new: Some(1),
-        text: text.into(),
+        body: CommentBody::Text(text.into()),
     };
     let mut app = App::new_watching(1, files());
     app.session
@@ -960,6 +960,64 @@ fn c_selects_a_diff_range_for_commenting() {
 }
 
 #[test]
+fn r_opens_a_prefilled_suggestion_for_new_side_lines() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,2 @@\n+    old();\n+tail();\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.diff_pane.cursor = 1;
+    app.diff_pane.range_anchor = Some(1);
+    app.diff_pane.cursor = 2;
+
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+    assert_eq!(app.focus, Focus::Editor);
+    assert_eq!(app.comment_editor.mode, comment_editor::Mode::Suggestion);
+    assert_eq!(app.comment_editor.text, "    old();\ntail();");
+    app.comment_editor.text = "    new();\n".into();
+    app.save_editor();
+
+    assert_eq!(app.session.comments[0].new_start, Some(1));
+    assert_eq!(app.session.comments[0].new_end, Some(2));
+    assert_eq!(app.session.comments[0].excerpt, "+    old();\n+tail();");
+    assert_eq!(
+        app.session.comments[0].body,
+        CommentBody::Suggestion {
+            replacement: "    new();\n".into()
+        }
+    );
+}
+
+#[test]
+fn suggestion_rejects_old_side_lines_without_opening_the_editor() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.diff_pane.cursor = 1;
+
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+    assert_eq!(app.focus, Focus::Diff);
+    assert!(app.session.comments.is_empty());
+}
+
+#[test]
+fn empty_suggestion_is_kept_and_enter_reopens_it_in_suggestion_mode() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+remove_me();\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.diff_pane.cursor = 1;
+
+    app.open_suggestion_editor();
+    app.comment_editor.text.clear();
+    app.save_editor();
+
+    assert!(matches!(
+        app.session.comments[0].body,
+        CommentBody::Suggestion { ref replacement } if replacement.is_empty()
+    ));
+    app.open_editor();
+    assert_eq!(app.comment_editor.mode, comment_editor::Mode::Suggestion);
+    assert_eq!(app.comment_editor.editing_key.as_deref(), Some("s-001"));
+}
+
+#[test]
 fn sidebar_spans_can_scroll_horizontally() {
     let spans = vec![
         Span::styled("  ", Style::default().fg(MUTED)),
@@ -1050,7 +1108,7 @@ fn inline_comment_is_a_full_width_visual_card() {
         new_end: Some(4),
         anchor_old: Some(3),
         anchor_new: Some(4),
-        text: "Please simplify\n```rust\nfix();\n```".into(),
+        body: CommentBody::Text("Please simplify\n```rust\nfix();\n```".into()),
     };
     let lines = inline_comment_lines(&comment, 1, 60);
     assert_eq!(lines.len(), 4);
@@ -1079,7 +1137,9 @@ fn inline_comments_wrap_words_and_long_tokens_to_the_viewport() {
         new_end: Some(1),
         anchor_old: Some(1),
         anchor_new: Some(1),
-        text: "This comment is deliberately long enough to wrap without disappearing.\n012345678901234567890123456789".into(),
+        body: CommentBody::Text(
+            "This comment is deliberately long enough to wrap without disappearing.\n012345678901234567890123456789".into(),
+        ),
     };
     let lines = inline_comment_lines(&comment, 1, 42);
 
@@ -1092,6 +1152,47 @@ fn inline_comments_wrap_words_and_long_tokens_to_the_viewport() {
         .collect::<String>();
     assert!(rendered.contains("disappearing."));
     assert!(rendered.contains("0123456789"));
+}
+
+#[test]
+fn inline_suggestion_preserves_indentation_and_uses_a_distinct_card() {
+    let suggestion = Comment {
+        id: "s-001".into(),
+        path: "a.rs".into(),
+        excerpt: "+old();".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(3),
+        new_end: Some(4),
+        anchor_old: None,
+        anchor_new: Some(4),
+        body: CommentBody::Suggestion {
+            replacement: "    fn new() {}".into(),
+        },
+    };
+
+    let lines = inline_comment_lines(&suggestion, 1, 60);
+
+    assert!(lines.iter().all(|line| line.width() == 60));
+    let rendered = lines
+        .iter()
+        .flat_map(|line| line.spans.iter())
+        .map(|span| span.content.as_ref())
+        .collect::<String>();
+    assert!(rendered.contains("Suggestion #1 · L3–4"));
+    assert!(rendered.contains("┃ +     fn new() {}"));
+    assert!(
+        lines
+            .iter()
+            .flat_map(|line| line.spans.iter().skip(1))
+            .all(|span| span.style.bg == Some(GREEN_BG))
+    );
+    let keyword = lines
+        .iter()
+        .flat_map(|line| &line.spans)
+        .find(|span| span.content.trim() == "fn")
+        .expect("saved suggestion should retain Rust syntax spans");
+    assert_ne!(keyword.style.fg, Some(TEXT));
 }
 
 #[test]
@@ -1117,6 +1218,79 @@ fn editor_cursor_moves_to_the_new_line() {
         }
     }
     assert!(cursor_row.unwrap() > text_row.unwrap());
+}
+
+#[test]
+fn suggestion_editor_uses_the_file_syntax_highlighter() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+fn old() {}\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.diff_pane.cursor = 1;
+    app.open_suggestion_editor();
+    app.comment_editor.text = "fn answer() -> bool {\n    true\n}".into();
+    app.comment_editor.cursor = app.comment_editor.text.len();
+    let mut lines = Vec::new();
+    let mut map = Vec::new();
+
+    app.diff_pane.editor_lines_for_test(
+        &app.session,
+        &app.comment_editor,
+        app.focus,
+        (&mut lines, &mut map),
+        ("Suggestion", 60),
+    );
+
+    let keyword = lines
+        .iter()
+        .flat_map(|line| &line.spans)
+        .find(|span| span.content.trim() == "fn")
+        .expect("Rust keyword should have its own syntax span");
+    assert_ne!(keyword.style.fg, Some(TEXT));
+    assert_eq!(keyword.style.bg, Some(COMMENT_BG));
+}
+
+#[test]
+fn long_inline_suggestion_does_not_push_the_diff_cursor_out_of_view() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1,4 @@\n+first();\n+second();\n+third();\n+target();\n";
+    let suggestion = Comment {
+        id: "s-001".into(),
+        path: "a.rs".into(),
+        excerpt: "+first();".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(1),
+        new_end: Some(1),
+        anchor_old: None,
+        anchor_new: Some(1),
+        body: CommentBody::Suggestion {
+            replacement: (0..12)
+                .map(|line| format!("replacement_{line}();"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        },
+    };
+    let mut app = App::new(parse_unified_diff(diff), vec![suggestion]);
+    app.diff_pane.cursor = 4;
+    let mut terminal = Terminal::new(TestBackend::new(100, 10)).unwrap();
+
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("target();"));
+    assert!(
+        terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .any(|cell| cell.symbol() == "t" && cell.bg == TEXT)
+    );
+    assert!(app.diff_pane.scroll > 1);
 }
 
 #[test]
@@ -1194,7 +1368,7 @@ fn sidebar_arrows_continue_after_selecting_a_comment() {
         new_end: Some(line),
         anchor_old: Some(line),
         anchor_new: Some(line),
-        text: text.into(),
+        body: CommentBody::Text(text.into()),
     };
     let mut app = App::new(
         parse_unified_diff(diff),

@@ -5,6 +5,11 @@ All notable changes to Loopdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
+### Added
+
+- Code suggestions for contiguous new-side diff ranges, with syntax-highlighted
+  inline editing, rendering, and clipboard export.
+
 ### Changed
 
 - Loopdiff is now a universal unified-diff viewer that reads standard input.
@@ -14,6 +19,8 @@ All notable changes to Loopdiff are documented in this file. The project uses
 
 ### Fixed
 
+- Keep the active diff cursor visible when long inline suggestions appear
+  earlier in the viewport.
 - Avoid a redundant terminal clear that could block before the first frame
   when the diff was supplied through a pipe.
 - Use Crossterm's controlling-TTY event source so keyboard input remains

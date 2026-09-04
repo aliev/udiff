@@ -8,20 +8,29 @@ pub enum Action {
     Cancel,
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum Mode {
+    #[default]
+    Comment,
+    Suggestion,
+}
+
 #[derive(Default)]
 pub struct CommentEditor {
     pub text: String,
     pub cursor: usize,
     pub anchor: Option<usize>,
     pub editing_key: Option<String>,
+    pub mode: Mode,
 }
 
 impl CommentEditor {
-    pub fn open(&mut self, text: String, anchor: usize, editing_key: Option<String>) {
+    pub fn open(&mut self, text: String, anchor: usize, editing_key: Option<String>, mode: Mode) {
         self.cursor = text.len();
         self.text = text;
         self.anchor = Some(anchor);
         self.editing_key = editing_key;
+        self.mode = mode;
     }
 
     pub fn close(&mut self) {
@@ -29,6 +38,7 @@ impl CommentEditor {
         self.cursor = 0;
         self.anchor = None;
         self.editing_key = None;
+        self.mode = Mode::Comment;
     }
 
     pub fn event(&mut self, key: KeyEvent) -> Action {
@@ -82,7 +92,7 @@ mod tests {
     #[test]
     fn editor_owns_utf8_safe_input_and_reports_intent() {
         let mut editor = CommentEditor::default();
-        editor.open("é".into(), 3, None);
+        editor.open("é".into(), 3, None, Mode::Comment);
         assert_eq!(
             editor.event(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
             Action::None

@@ -3,8 +3,9 @@
 A fast Rust/Ratatui terminal UI for viewing unified diffs and patch files.
 
 Loopdiff reads a diff from standard input, presents it in a quiet GitHub-like
-interface, and lets you attach temporary comments to lines or ranges. Comments
-can be copied as compact plain text for use in another tool.
+interface, and lets you attach temporary comments and code suggestions to lines
+or ranges. Review items can be copied as compact plain text for use in another
+tool.
 
 ## Install
 
@@ -50,7 +51,8 @@ cat changes.patch | loopdiff
 
 Running `loopdiff` without piped input exits with a short usage hint. An empty
 or unsupported input exits successfully with `loopdiff: nothing to view`.
-Comments and reviewed-file state are intentionally local to the current run.
+Comments, suggestions, and reviewed-file state are intentionally local to the
+current run.
 
 ### Watch mode
 
@@ -70,11 +72,12 @@ git diff | loopdiff --watch .
 Watch mode is in-memory and does not create a journal or require Git. Each
 quiet-period batch from Diffwatch appears as a revision in Loopdiff. Loopdiff
 follows new revisions while you are viewing the latest one. Use `{` and `}` to
-move between older and newer revisions. Cursor, comments, and reviewed-file
+move between older and newer revisions. Cursor, review items, and reviewed-file
 state are retained independently for every revision. `Shift+Y` copies comments
-from every revision in chronological order. When stdin provides the initial
-diff, it appears as `revision 1/N · context`; the watcher still snapshots the
-current directory normally and numbers subsequent live revisions from `#1`.
+and suggestions from every revision in chronological order. When stdin provides
+the initial diff, it appears as `revision 1/N · context`; the watcher still
+snapshots the current directory normally and numbers subsequent live revisions
+from `#1`.
 
 Revisions created while an editor opened with `s` is running are labeled with
 the name from `git config user.name`, falling back to `human`; all other
@@ -121,6 +124,8 @@ unified diff—not `delta` output—into Loopdiff.
 - Separate old/new gutters and per-hunk syntax highlighting.
 - Full-row add/remove backgrounds, cursor, and visual ranges.
 - Inline multiline comments attached to lines or ranges.
+- Syntax-highlighted code suggestions that replace contiguous new-side or
+  context lines.
 - Comments appear as selectable children beneath their files.
 - Mouse support plus Vim-style navigation.
 - VS Code-style sticky hunk headers.
@@ -136,17 +141,18 @@ OSC 52 clipboard access.
 | `?` | open keyboard help |
 | `j/k`, arrows | move |
 | `G`, `gg`, `42gg` | end/start/jump to line |
-| `c`, then `j/k` or arrows | select diff lines for a comment |
+| `c`, then `j/k` or arrows | select diff lines for review |
 | `Enter`, double click | add or edit a comment |
-| `Enter`, `Esc` | save/cancel the comment editor |
-| `Shift+Enter` | insert a newline in a comment |
+| `r` | suggest a replacement for the current line or selected range |
+| `Enter`, `Esc` | save/cancel the review editor |
+| `Shift+Enter` | insert a newline in a comment or suggestion |
 | `[` / `]` | previous/next comment |
 | `d` / `u` | delete comment / undo deletion |
 | `Space` | mark the current file reviewed/reopen it and advance |
 | `v`, then arrows or `h/j/k/l` | characterwise visual selection |
 | `Shift+V`, then `j/k` or arrows | linewise visual selection |
 | `y` | copy the visual selection |
-| `Shift+Y` | copy comments from files not marked reviewed |
+| `Shift+Y` | copy comments and suggestions from files not marked reviewed |
 | `Shift+S` | copy your current revision as an AI handoff |
 | `Shift+R` | clear in-memory revisions and return to the waiting screen |
 | `e` | open the current file in `$EDITOR` |

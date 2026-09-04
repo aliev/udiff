@@ -3,6 +3,10 @@ use regex::Regex;
 mod highlight;
 use highlight::apply as highlight;
 
+pub(crate) fn highlight_source(path: &str, source: &str) -> Vec<Vec<SyntaxSpan>> {
+    highlight::source(path, source)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LineKind {
     Context,

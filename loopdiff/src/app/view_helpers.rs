@@ -57,7 +57,7 @@ pub(super) fn apply_block_cursor<'a>(
         }
         offset += length;
     }
-    if column == 0 && offset == 0 {
+    if column == offset {
         spans.push(Span::styled(
             " ",
             Style::default()

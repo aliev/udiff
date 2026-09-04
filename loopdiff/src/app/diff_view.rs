@@ -1,9 +1,9 @@
 use super::{
     BG, BLUE, BORDER, COMMENT, COMMENT_BG, Focus, GREEN, GREEN_BG, HUNK_BG, MUTED, RED, RED_BG,
     SELECT_BG, SURFACE, TEXT,
-    comment_editor::CommentEditor,
+    comment_editor::{CommentEditor, Mode as EditorMode},
     diff_pane::{DiffPane, VisualMode},
-    render::inline_comment_lines,
+    render::{inline_comment_lines, styled_syntax_spans},
     session::Session,
     view_helpers::{
         anchor_position, apply_block_cursor, apply_character_selection, editor_visual_rows,
@@ -11,7 +11,9 @@ use super::{
         wrap_code_line, wrapped_scroll,
     },
 };
-use crate::model::{DiffLine, FileDiff, FileStatus, FileViewChange, LineKind, file_view_changes};
+use crate::model::{
+    DiffLine, FileDiff, FileStatus, FileViewChange, LineKind, file_view_changes, highlight_source,
+};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -390,23 +392,30 @@ impl Renderer<'_> {
             &file.lines,
             true,
         );
+        self.pane.scroll = review_aware_scroll(
+            self.pane.scroll,
+            self.pane.cursor,
+            height,
+            a.width as usize,
+            &file,
+            self.session,
+        );
         let viewport_starts_with_hunk = file
             .lines
             .get(self.pane.scroll)
             .is_some_and(|line| line.kind == LineKind::Hunk);
-        if !viewport_starts_with_hunk {
-            if let Some(sticky) = file.lines[..self.pane.scroll.min(file.lines.len())]
+        if !viewport_starts_with_hunk
+            && let Some(sticky) = file.lines[..self.pane.scroll.min(file.lines.len())]
                 .iter()
                 .rposition(|line| line.kind == LineKind::Hunk)
-            {
-                for line in wrap_code_line(
-                    self.diff_line(&file.lines[sticky], sticky, a.width as usize),
-                    3,
-                    a.width as usize,
-                ) {
-                    lines.push(line);
-                    map.push(Some(sticky));
-                }
+        {
+            for line in wrap_code_line(
+                self.diff_line(&file.lines[sticky], sticky, a.width as usize),
+                3,
+                a.width as usize,
+            ) {
+                lines.push(line);
+                map.push(Some(sticky));
             }
         }
         for p in self.pane.scroll..file.lines.len() {
@@ -421,6 +430,11 @@ impl Renderer<'_> {
             }
             let editor_here = Some(p) == self.editor.anchor && self.focus == Focus::Editor;
             if editor_here {
+                let kind = if self.editor.mode == EditorMode::Suggestion {
+                    "SUGGESTION"
+                } else {
+                    "COMMENT"
+                };
                 let title = if let Some(key) = &self.editor.editing_key {
                     let location = self
                         .session
@@ -429,12 +443,12 @@ impl Renderer<'_> {
                         .find(|comment| &comment.id == key)
                         .map(|comment| comment.short_location())
                         .unwrap_or_else(|| "selection".into());
-                    format!("EDIT COMMENT · {location}")
+                    format!("EDIT {kind} · {location}")
                 } else {
                     let (start, end) = self.pane.selected_bounds();
                     let lines = end - start + 1;
                     format!(
-                        "NEW COMMENT · {lines} line{} selected",
+                        "NEW {kind} · {lines} line{} selected",
                         if lines == 1 { "" } else { "s" }
                     )
                 };
@@ -479,6 +493,8 @@ impl Renderer<'_> {
             &self.editor.text,
             width.saturating_sub(EDITOR_PREFIX_WIDTH + 2).max(1),
         );
+        let syntax = (self.editor.mode == EditorMode::Suggestion)
+            .then(|| highlight_source(&self.current().path, &self.editor.text));
         let cursor_row = visual_rows
             .iter()
             .rposition(|(start, _)| *start <= self.editor.cursor)
@@ -489,36 +505,42 @@ impl Renderer<'_> {
                 "┃ ",
                 Style::default().fg(COMMENT).bg(COMMENT_BG),
             )];
+            let mut code_spans = syntax
+                .as_ref()
+                .and_then(|lines| {
+                    let logical_start = self.editor.text[..start]
+                        .rfind('\n')
+                        .map_or(0, |position| position + 1);
+                    let logical_line = self.editor.text[..logical_start]
+                        .bytes()
+                        .filter(|byte| *byte == b'\n')
+                        .count();
+                    lines.get(logical_line).map(|spans| {
+                        styled_syntax_spans(
+                            spans,
+                            start - logical_start,
+                            end - logical_start,
+                            COMMENT_BG,
+                        )
+                    })
+                })
+                .unwrap_or_default();
+            if code_spans.is_empty() && !edit_line.is_empty() {
+                code_spans.push(Span::styled(
+                    edit_line.to_owned(),
+                    Style::default().fg(TEXT).bg(COMMENT_BG),
+                ));
+            }
             if index == cursor_row {
                 let cursor_column = self
                     .editor
                     .cursor
                     .saturating_sub(start)
                     .min(edit_line.len());
-                let before = &edit_line[..cursor_column];
-                let after = &edit_line[cursor_column..];
-                editor_spans.push(Span::styled(
-                    before.to_owned(),
-                    Style::default().fg(TEXT).bg(COMMENT_BG),
-                ));
-                if let Some(character) = after.chars().next() {
-                    editor_spans.push(Span::styled(
-                        character.to_string(),
-                        Style::default().fg(COMMENT_BG).bg(TEXT),
-                    ));
-                    editor_spans.push(Span::styled(
-                        after[character.len_utf8()..].to_owned(),
-                        Style::default().fg(TEXT).bg(COMMENT_BG),
-                    ));
-                } else {
-                    editor_spans.push(Span::styled(" ", Style::default().fg(COMMENT_BG).bg(TEXT)));
-                }
-            } else {
-                editor_spans.push(Span::styled(
-                    edit_line.to_owned(),
-                    Style::default().fg(TEXT).bg(COMMENT_BG),
-                ));
+                let cursor_column = edit_line[..cursor_column].chars().count();
+                apply_block_cursor(&mut code_spans, 0, cursor_column, COMMENT_BG);
             }
+            editor_spans.extend(code_spans);
             lines.push(editor_card_line(editor_spans, width, EDITOR_PREFIX_WIDTH));
             map.push(None);
         }
@@ -622,6 +644,65 @@ impl Renderer<'_> {
         }
         Line::from(spans)
     }
+}
+
+fn review_aware_scroll(
+    mut scroll: usize,
+    cursor: usize,
+    height: usize,
+    width: usize,
+    file: &FileDiff,
+    session: &Session,
+) -> usize {
+    let review_rows = session
+        .comments
+        .iter()
+        .filter(|comment| comment.path == file.path)
+        .enumerate()
+        .filter_map(|(number, comment)| {
+            anchor_position(file, comment).map(|anchor| {
+                (
+                    anchor,
+                    inline_comment_lines(comment, number + 1, width).len(),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    while scroll < cursor {
+        let code_rows = file.lines[scroll..=cursor]
+            .iter()
+            .map(|line| super::view_helpers::wrapped_code_row_count(&line.text, 13, width))
+            .sum::<usize>();
+        let inline_rows = review_rows
+            .iter()
+            .filter(|(anchor, _)| scroll <= *anchor && *anchor < cursor)
+            .map(|(_, rows)| rows)
+            .sum::<usize>();
+        let sticky_rows = if file.lines[scroll].kind != LineKind::Hunk {
+            file.lines[..scroll]
+                .iter()
+                .rposition(|line| line.kind == LineKind::Hunk)
+                .map(|position| {
+                    super::view_helpers::wrapped_code_row_count(
+                        &file.lines[position].text,
+                        3,
+                        width,
+                    )
+                })
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        if code_rows
+            .saturating_add(inline_rows)
+            .saturating_add(sticky_rows)
+            <= height
+        {
+            break;
+        }
+        scroll += 1;
+    }
+    scroll
 }
 
 fn editor_card_line<'a>(mut card: Vec<Span<'a>>, width: usize, prefix_width: usize) -> Line<'a> {

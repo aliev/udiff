@@ -1,7 +1,10 @@
-use super::{BG, BLUE, COMMENT, COMMENT_BG, GREEN, RED, TEXT};
-use crate::{comment::Comment, model::FileStatus};
+use super::{BG, BLUE, COMMENT, COMMENT_BG, GREEN, GREEN_BG, RED, TEXT};
+use crate::{
+    comment::{Comment, CommentBody},
+    model::{FileStatus, SyntaxSpan, highlight_source},
+};
 use ratatui::{
-    style::Style,
+    style::{Color, Modifier, Style},
     text::{Line, Span},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -52,11 +55,15 @@ pub(super) fn inline_comment_lines(
     number: usize,
     width: usize,
 ) -> Vec<Line<'static>> {
+    if let CommentBody::Suggestion { replacement } = &comment.body {
+        return inline_suggestion_lines(comment, replacement, number, width);
+    }
+
     const CODE_COLUMN: usize = 13;
     let prefix_width = CODE_COLUMN.min(width);
     let card_width = width.saturating_sub(prefix_width);
     let label = format!("Comment #{number} · {}", comment.short_location());
-    let wrapped = wrap_comment(&comment.text, card_width, &label);
+    let wrapped = wrap_comment(comment.body.text(), card_width, &label);
     wrapped
         .into_iter()
         .enumerate()
@@ -92,6 +99,138 @@ pub(super) fn inline_comment_lines(
             Line::from(spans)
         })
         .collect()
+}
+
+fn inline_suggestion_lines(
+    comment: &Comment,
+    replacement: &str,
+    number: usize,
+    width: usize,
+) -> Vec<Line<'static>> {
+    const CODE_COLUMN: usize = 13;
+    let prefix_width = CODE_COLUMN.min(width);
+    let card_width = width.saturating_sub(prefix_width);
+    let label = format!("Suggestion #{number} · {}", comment.short_location());
+    let mut lines = vec![review_card_line(
+        vec![Span::styled(
+            format!("┃ {label}"),
+            Style::default().fg(GREEN).bg(GREEN_BG),
+        )],
+        prefix_width,
+        card_width,
+        GREEN_BG,
+    )];
+    let available = card_width.saturating_sub(4).max(1);
+    let highlighted = highlight_source(&comment.path, replacement);
+    for (line_number, logical_line) in replacement.split('\n').enumerate() {
+        let mut remaining = logical_line;
+        let mut offset = 0;
+        let mut first = true;
+        loop {
+            let (part, rest) = split_code_for_width(remaining, available);
+            let lead = if first { "┃ + " } else { "┃   " };
+            let mut code = highlighted
+                .get(line_number)
+                .map(|syntax| styled_syntax_spans(syntax, offset, offset + part.len(), GREEN_BG))
+                .unwrap_or_default();
+            if code.is_empty() && !part.is_empty() {
+                code.push(Span::styled(
+                    part.to_owned(),
+                    Style::default().fg(TEXT).bg(GREEN_BG),
+                ));
+            }
+            let mut row = vec![Span::styled(lead, Style::default().fg(GREEN).bg(GREEN_BG))];
+            row.extend(code);
+            lines.push(review_card_line(row, prefix_width, card_width, GREEN_BG));
+            if rest.is_empty() {
+                break;
+            }
+            offset += part.len();
+            remaining = rest;
+            first = false;
+        }
+    }
+    lines
+}
+
+pub(super) fn styled_syntax_spans(
+    syntax: &[SyntaxSpan],
+    start: usize,
+    end: usize,
+    background: Color,
+) -> Vec<Span<'static>> {
+    let mut offset = 0;
+    let mut output = Vec::new();
+    for span in syntax {
+        let span_end = offset + span.text.len();
+        let overlap_start = start.max(offset);
+        let overlap_end = end.min(span_end);
+        if overlap_start < overlap_end {
+            let mut style = Style::default()
+                .fg(Color::Rgb(span.rgb.0, span.rgb.1, span.rgb.2))
+                .bg(background);
+            if span.bold {
+                style = style.add_modifier(Modifier::BOLD);
+            }
+            if span.italic {
+                style = style.add_modifier(Modifier::ITALIC);
+            }
+            output.push(Span::styled(
+                span.text[overlap_start - offset..overlap_end - offset].to_owned(),
+                style,
+            ));
+        }
+        offset = span_end;
+        if offset >= end {
+            break;
+        }
+    }
+    output
+}
+
+fn review_card_line(
+    spans: Vec<Span<'static>>,
+    prefix_width: usize,
+    card_width: usize,
+    background: ratatui::style::Color,
+) -> Line<'static> {
+    let mut card = crop_spans(spans, 0, card_width);
+    let visible = card
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum::<usize>();
+    if visible < card_width {
+        card.push(Span::styled(
+            " ".repeat(card_width - visible),
+            Style::default().bg(background),
+        ));
+    }
+    let mut output = vec![Span::styled(
+        " ".repeat(prefix_width),
+        Style::default().bg(BG),
+    )];
+    output.extend(card);
+    Line::from(output)
+}
+
+fn split_code_for_width(text: &str, width: usize) -> (&str, &str) {
+    if UnicodeWidthStr::width(text) <= width {
+        return (text, "");
+    }
+    let mut used = 0;
+    for (index, character) in text.char_indices() {
+        let character_width = UnicodeWidthChar::width(character).unwrap_or(0);
+        if used + character_width > width {
+            let cut = if index == 0 {
+                character.len_utf8()
+            } else {
+                index
+            };
+            return (&text[..cut], &text[cut..]);
+        }
+        used += character_width;
+    }
+    (text, "")
 }
 
 fn wrap_comment(text: &str, card_width: usize, label: &str) -> Vec<String> {
