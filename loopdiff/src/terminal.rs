@@ -2,7 +2,6 @@ use crate::app::{App, BG, Command, EditorTarget, Effect, MUTED, TEXT};
 use crate::input::{WatchInputEvent, WatchSource};
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use chrono::{DateTime, Utc};
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
@@ -32,12 +31,6 @@ enum EffectOutcome {
     ResetWatch,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct HumanEdit {
-    started_at: DateTime<Utc>,
-    finished_at: DateTime<Utc>,
-}
-
 impl TerminalRuntime {
     pub fn run(app: App) -> Result<Effect> {
         Self::run_inner(Some(app), None)
@@ -48,8 +41,6 @@ impl TerminalRuntime {
     }
 
     fn run_inner(mut app: Option<App>, watch_source: Option<WatchSource>) -> Result<Effect> {
-        let mut human_edits = Vec::new();
-        let human_name = git_user_name();
         enable_raw_mode().context("enable raw mode")?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -59,7 +50,7 @@ impl TerminalRuntime {
             loop {
                 if let Some(source) = &watch_source {
                     while let Ok(event) = source.try_recv() {
-                        apply_watch_event(&mut app, event, &mut human_edits, &human_name);
+                        apply_watch_event(&mut app, event);
                     }
                 }
                 terminal.draw(|frame| match &mut app {
@@ -76,7 +67,6 @@ impl TerminalRuntime {
                                     &mut terminal,
                                     effect,
                                     watch_source.as_ref().map(WatchSource::root),
-                                    &mut human_edits,
                                 )?
                             } else if key.code == crossterm::event::KeyCode::Char('q') {
                                 EffectOutcome::Quit
@@ -120,31 +110,14 @@ fn apply_effect_outcome(app: &mut Option<App>, outcome: EffectOutcome) -> bool {
     }
 }
 
-fn apply_watch_event(
-    app: &mut Option<App>,
-    event: WatchInputEvent,
-    human_edits: &mut Vec<HumanEdit>,
-    human_name: &str,
-) {
+fn apply_watch_event(app: &mut Option<App>, event: WatchInputEvent) {
     match event {
-        WatchInputEvent::Batch {
-            number,
-            started_at,
-            finished_at,
-            files,
-        } => {
-            let origin = revision_origin(human_edits, started_at, finished_at, human_name);
-            match app {
-                Some(app) => {
-                    app.update(Command::BatchReceived {
-                        number,
-                        files,
-                        origin,
-                    });
-                }
-                None => *app = Some(App::new_watching(number, files)),
+        WatchInputEvent::Batch { number, files } => match app {
+            Some(app) => {
+                app.update(Command::RevisionReceived { number, files });
             }
-        }
+            None => *app = Some(App::new_watching(number, files)),
+        },
         WatchInputEvent::Error(error) => {
             if let Some(app) = app {
                 app.update(Command::WatchError(error));
@@ -156,40 +129,6 @@ fn apply_watch_event(
             }
         }
     }
-}
-
-fn revision_origin(
-    human_edits: &mut Vec<HumanEdit>,
-    started_at: DateTime<Utc>,
-    finished_at: DateTime<Utc>,
-    human_name: &str,
-) -> crate::app::RevisionOrigin {
-    let human = human_edits
-        .iter()
-        .any(|edit| edit.started_at <= finished_at && started_at <= edit.finished_at);
-    human_edits.retain(|edit| edit.finished_at >= started_at);
-    if human {
-        crate::app::RevisionOrigin::Human(human_name.to_owned())
-    } else {
-        crate::app::RevisionOrigin::Observed
-    }
-}
-
-fn git_user_name() -> String {
-    let configured = ProcessCommand::new("git")
-        .args(["config", "--get", "user.name"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .and_then(|output| String::from_utf8(output.stdout).ok());
-    normalize_user_name(configured)
-}
-
-fn normalize_user_name(configured: Option<String>) -> String {
-    configured
-        .map(|name| name.trim().to_owned())
-        .filter(|name| !name.is_empty())
-        .unwrap_or_else(|| "human".into())
 }
 
 fn draw_waiting(frame: &mut Frame) {
@@ -235,7 +174,6 @@ fn handle_effect(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     effect: Effect,
     watch_root: Option<&Path>,
-    human_edits: &mut Vec<HumanEdit>,
 ) -> Result<EffectOutcome> {
     match effect {
         Effect::None => {}
@@ -244,24 +182,13 @@ fn handle_effect(
             write!(terminal.backend_mut(), "{}", osc52_sequence(&text))?;
             terminal.backend_mut().flush()?;
         }
-        Effect::RequestFileView(file) => {
-            app.update(Command::FileViewLoaded { file, lines: None });
-        }
         Effect::OpenEditor(mut target) => {
             if let Some(root) = watch_root
                 && Path::new(&target.path).is_relative()
             {
                 target.path = root.join(&target.path).to_string_lossy().into_owned();
             }
-            let started_at = Utc::now();
             let result = open_in_editor(terminal, &target);
-            let finished_at = Utc::now();
-            if target.capture_changes && result.is_ok() {
-                human_edits.push(HumanEdit {
-                    started_at,
-                    finished_at,
-                });
-            }
             if let Err(error) = result {
                 app.notice(format!("editor: {error:#}"));
             }
@@ -323,46 +250,9 @@ fn editor_command(target: &EditorTarget) -> Result<ProcessCommand> {
 fn editor_command_from(editor: &str, target: &EditorTarget) -> Result<ProcessCommand> {
     let mut parts = editor.split_whitespace();
     let program = parts.next().context("$EDITOR is empty")?;
-    let configured_arguments = parts.collect::<Vec<_>>();
-    let editor_name = std::path::Path::new(program)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(program);
     let mut command = ProcessCommand::new(program);
-    command.args(&configured_arguments);
-    match (editor_name, target.line) {
-        ("hx" | "helix", Some(line)) => {
-            command.arg(source_location(target, line));
-        }
-        ("vim" | "nvim" | "vi", Some(line)) => {
-            command
-                .arg(format!(
-                    "+call cursor({line},{})",
-                    target.column.unwrap_or(1)
-                ))
-                .arg(&target.path);
-        }
-        ("code" | "code-insiders" | "codium", Some(line)) => {
-            if !configured_arguments.contains(&"--wait") {
-                command.arg("--wait");
-            }
-            command.arg("--goto").arg(source_location(target, line));
-        }
-        ("zed", Some(line)) => {
-            if !configured_arguments.contains(&"--wait") {
-                command.arg("--wait");
-            }
-            command.arg(source_location(target, line));
-        }
-        _ => {
-            command.arg(&target.path);
-        }
-    }
+    command.args(parts).arg(&target.path);
     Ok(command)
-}
-
-fn source_location(target: &EditorTarget, line: u32) -> String {
-    format!("{}:{line}:{}", target.path, target.column.unwrap_or(1))
 }
 
 #[cfg(test)]
@@ -374,43 +264,12 @@ mod tests {
     fn editor_command_preserves_configured_arguments_and_file_path() {
         let target = EditorTarget {
             path: "src/main file.rs".into(),
-            line: None,
-            column: None,
-            capture_changes: false,
         };
         let command = editor_command_from("code --wait", &target).unwrap();
         assert_eq!(command.get_program(), "code");
         assert_eq!(
             command.get_args().collect::<Vec<_>>(),
             ["--wait", "src/main file.rs"]
-        );
-    }
-
-    #[test]
-    fn editor_commands_use_native_source_locations() {
-        let target = EditorTarget {
-            path: "src/main file.rs".into(),
-            line: Some(42),
-            column: Some(9),
-            capture_changes: true,
-        };
-
-        let helix = editor_command_from("hx", &target).unwrap();
-        assert_eq!(
-            helix.get_args().collect::<Vec<_>>(),
-            ["src/main file.rs:42:9"]
-        );
-
-        let vscode = editor_command_from("code", &target).unwrap();
-        assert_eq!(
-            vscode.get_args().collect::<Vec<_>>(),
-            ["--wait", "--goto", "src/main file.rs:42:9"]
-        );
-
-        let neovim = editor_command_from("nvim", &target).unwrap();
-        assert_eq!(
-            neovim.get_args().collect::<Vec<_>>(),
-            ["+call cursor(42,9)", "src/main file.rs"]
         );
     }
 
@@ -451,61 +310,8 @@ mod tests {
         let files = crate::model::parse_unified_diff(
             "--- fresh.rs\n+++ fresh.rs\n@@ -1 +1 @@\n-old\n+new\n",
         );
-        let now = Utc::now();
-        apply_watch_event(
-            &mut app,
-            WatchInputEvent::Batch {
-                number: 2,
-                started_at: now,
-                finished_at: now,
-                files,
-            },
-            &mut Vec::new(),
-            "human",
-        );
+        apply_watch_event(&mut app, WatchInputEvent::Batch { number: 2, files });
         assert!(app.is_some());
-    }
-
-    #[test]
-    fn revision_origin_uses_editor_session_overlap() {
-        use chrono::TimeDelta;
-
-        let editor_start = Utc::now();
-        let editor_end = editor_start + TimeDelta::seconds(10);
-        let mut edits = vec![HumanEdit {
-            started_at: editor_start,
-            finished_at: editor_end,
-        }];
-
-        assert_eq!(
-            revision_origin(
-                &mut edits,
-                editor_start + TimeDelta::seconds(2),
-                editor_start + TimeDelta::seconds(4),
-                "Ada",
-            ),
-            crate::app::RevisionOrigin::Human("Ada".into())
-        );
-        assert_eq!(
-            revision_origin(
-                &mut edits,
-                editor_end + TimeDelta::seconds(1),
-                editor_end + TimeDelta::seconds(3),
-                "Ada",
-            ),
-            crate::app::RevisionOrigin::Observed
-        );
-        assert!(edits.is_empty());
-    }
-
-    #[test]
-    fn git_user_name_falls_back_for_missing_or_empty_values() {
-        assert_eq!(
-            normalize_user_name(Some("  Ada Lovelace\n".into())),
-            "Ada Lovelace"
-        );
-        assert_eq!(normalize_user_name(Some("  ".into())), "human");
-        assert_eq!(normalize_user_name(None), "human");
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # loopdiff
 
-A fast Rust/Ratatui terminal UI for viewing unified diffs and patch files.
+A focused Rust/Ratatui terminal UI for reviewing unified diffs and patch files.
 
 Loopdiff reads a diff from standard input, presents it in a quiet GitHub-like
 interface, and lets you attach temporary comments and code suggestions to lines
@@ -79,15 +79,6 @@ the initial diff, it appears as `revision 1/N · context`; the watcher still
 snapshots the current directory normally and numbers subsequent live revisions
 from `#1`.
 
-Revisions created while an editor opened with `s` is running are labeled with
-the name from `git config user.name`, falling back to `human`; all other
-filesystem revisions are labeled `observed`. Classification uses the timestamps
-reported by Diffwatch: a revision belongs to the developer when its activity
-interval overlaps the editor session. This also covers multiple saves and
-multiple quiet-period revisions during one editing session. Because no agent
-protocol is involved, a revision containing simultaneous human and external
-edits is still attributed to the developer.
-
 ### Compare two files
 
 The simplest way to review changes between two files is `diff -u`:
@@ -153,10 +144,8 @@ OSC 52 clipboard access.
 | `Shift+V`, then `j/k` or arrows | linewise visual selection |
 | `y` | copy the visual selection |
 | `Shift+Y` | copy comments and suggestions from files not marked reviewed |
-| `Shift+S` | copy your current revision as an AI handoff |
 | `Shift+R` | clear in-memory revisions and return to the waiting screen |
 | `e` | open the current file in `$EDITOR` |
-| `s` | edit code at the current line in `$EDITOR` |
 | `/` | filter files through the statusline |
 | `h/l`, left/right | horizontally scroll the sidebar |
 | `{` / `}` | previous/next revision |
@@ -165,7 +154,8 @@ OSC 52 clipboard access.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Loopdiff is available under the
+Start with [ARCHITECTURE.md](ARCHITECTURE.md) to understand the codebase, then
+see [CONTRIBUTING.md](CONTRIBUTING.md). Loopdiff is available under the
 [MIT License](LICENSE). Release notes are maintained in
 [CHANGELOG.md](CHANGELOG.md), and the maintainer release process is documented
 in [RELEASING.md](RELEASING.md).

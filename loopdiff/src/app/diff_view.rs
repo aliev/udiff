@@ -11,8 +11,9 @@ use super::{
         wrap_code_line, wrapped_scroll,
     },
 };
-use crate::model::{
-    DiffLine, FileDiff, FileStatus, FileViewChange, LineKind, file_view_changes, highlight_source,
+use crate::{
+    highlight::highlight_source,
+    model::{DiffLine, FileDiff, FileStatus, LineKind},
 };
 use ratatui::{
     Frame,
@@ -191,11 +192,7 @@ impl Renderer<'_> {
         ]);
         let right_header = vec![
             Span::styled(
-                if self.pane.file_view {
-                    " FILE "
-                } else {
-                    " DIFF "
-                },
+                " DIFF ",
                 Style::default()
                     .fg(BLUE)
                     .bg(SELECT_BG)
@@ -239,142 +236,7 @@ impl Renderer<'_> {
             header_columns[1],
         );
         self.pane.area = parts[1];
-        if self.pane.file_view {
-            self.draw_file(f, parts[1]);
-        } else {
-            self.draw_diff(f, parts[1]);
-        }
-    }
-
-    fn draw_file(&mut self, f: &mut Frame, area: Rect) {
-        let height = area.height as usize;
-        self.ensure_visible(height);
-        let width = area.width as usize;
-        let lines = self.active_lines().to_vec();
-        self.pane.scroll = wrapped_scroll(
-            self.pane.scroll,
-            self.pane.cursor,
-            height,
-            width,
-            9,
-            &lines,
-            false,
-        );
-        let changes = file_view_changes(self.current());
-        let visible = (self.pane.scroll..lines.len())
-            .flat_map(|position| {
-                let change = if self.current().status == FileStatus::Deleted {
-                    Some(FileViewChange::Removed)
-                } else {
-                    changes.iter().find_map(|(line, change)| {
-                        (*line as usize == position + 1).then_some(*change)
-                    })
-                };
-                wrap_code_line(
-                    self.file_line(&lines[position], position, change, width),
-                    2,
-                    width,
-                )
-                .into_iter()
-                .map(move |line| (line, position))
-            })
-            .take(height)
-            .collect::<Vec<_>>();
-        self.pane.row_map = visible
-            .iter()
-            .map(|(_, position)| Some(*position))
-            .collect();
-        f.render_widget(
-            Paragraph::new(
-                visible
-                    .into_iter()
-                    .map(|(line, _)| line)
-                    .collect::<Vec<_>>(),
-            )
-            .style(Style::default().bg(BG)),
-            area,
-        );
-    }
-
-    fn file_line<'a>(
-        &self,
-        line: &'a DiffLine,
-        position: usize,
-        change: Option<FileViewChange>,
-        width: usize,
-    ) -> Line<'a> {
-        let code_background = if self.visual_line_selected(position) {
-            SELECT_BG
-        } else {
-            BG
-        };
-        let (marker, marker_color) = match change {
-            Some(FileViewChange::Added) => ("▌", GREEN),
-            Some(FileViewChange::Modified) => ("▌", BLUE),
-            Some(FileViewChange::Deleted) => ("▾", RED),
-            Some(FileViewChange::Removed) => ("▌", RED),
-            None => (" ", MUTED),
-        };
-        let mut spans = vec![
-            Span::styled(marker, Style::default().fg(marker_color).bg(BG)),
-            Span::styled(
-                format!("{:>6}  ", position + 1),
-                Style::default().fg(MUTED).bg(BG),
-            ),
-        ];
-        if line.syntax.is_empty() {
-            spans.push(Span::styled(line.text.clone(), Style::default().fg(TEXT)));
-        } else {
-            for syntax in &line.syntax {
-                let mut style =
-                    Style::default().fg(Color::Rgb(syntax.rgb.0, syntax.rgb.1, syntax.rgb.2));
-                if syntax.bold {
-                    style = style.add_modifier(Modifier::BOLD);
-                }
-                if syntax.italic {
-                    style = style.add_modifier(Modifier::ITALIC);
-                }
-                spans.push(Span::styled(syntax.text.clone(), style));
-            }
-        }
-        for span in &mut spans[2..] {
-            if span.style.bg.is_none() {
-                span.style = span.style.bg(code_background);
-            }
-        }
-        expand_tabs(&mut spans, 2);
-        if let Some((raw_start, raw_end)) = self.visual_character_range(position) {
-            let cursor = (position == self.pane.cursor).then(|| {
-                expanded_character_column(
-                    &line.text,
-                    self.pane.visual_col.clamp(raw_start, raw_end),
-                )
-            });
-            let start = expanded_character_column(&line.text, raw_start);
-            let end = expanded_character_column(&line.text, raw_end + 1).saturating_sub(1);
-            apply_character_selection(&mut spans, 2, start, end, cursor);
-        } else if position == self.pane.cursor
-            && self.pane.visual_mode.is_none()
-            && self.focus == Focus::Diff
-        {
-            apply_block_cursor(
-                &mut spans,
-                2,
-                expanded_character_column(&line.text, self.pane.visual_col),
-                code_background,
-            );
-        }
-        let content_width = spans
-            .iter()
-            .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
-            .sum::<usize>();
-        if content_width < width {
-            spans.push(Span::styled(
-                " ".repeat(width - content_width),
-                Style::default().bg(code_background),
-            ));
-        }
-        Line::from(spans)
+        self.draw_diff(f, parts[1]);
     }
 
     fn draw_diff(&mut self, f: &mut Frame, a: Rect) {

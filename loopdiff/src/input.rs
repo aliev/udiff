@@ -1,6 +1,5 @@
 use crate::model::{FileDiff, parse_unified_diff};
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
 use diffwatch::watcher::{WatchEvent, WatchHandle, WatchOptions};
 use std::io::{self, IsTerminal, Read};
 use std::path::PathBuf;
@@ -22,12 +21,7 @@ impl StdinDiffSource {
 
 #[derive(Debug)]
 pub enum WatchInputEvent {
-    Batch {
-        number: u64,
-        started_at: DateTime<Utc>,
-        finished_at: DateTime<Utc>,
-        files: Vec<FileDiff>,
-    },
+    Batch { number: u64, files: Vec<FileDiff> },
     Error(String),
     Closed,
 }
@@ -63,20 +57,15 @@ fn watch_input_event(event: WatchEvent) -> WatchInputEvent {
     match event {
         WatchEvent::Batch {
             number,
-            started_at,
-            finished_at,
+            started_at: _,
+            finished_at: _,
             unified_diff,
         } => {
             let files = parse_unified_diff(&unified_diff);
             if files.is_empty() {
                 WatchInputEvent::Error(format!("revision {number} contains no supported diff"))
             } else {
-                WatchInputEvent::Batch {
-                    number,
-                    started_at,
-                    finished_at,
-                    files,
-                }
+                WatchInputEvent::Batch { number, files }
             }
         }
         WatchEvent::Warning(error) => WatchInputEvent::Error(error),

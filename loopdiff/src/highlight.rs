@@ -1,4 +1,4 @@
-use super::{FileDiff, LineKind, SyntaxSpan};
+use crate::model::{FileDiff, LineKind, SyntaxSpan};
 use std::sync::OnceLock;
 use syntect::{
     easy::HighlightLines,
@@ -9,7 +9,7 @@ use syntect::{
 static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();
 static THEME: OnceLock<Theme> = OnceLock::new();
 
-pub(super) fn apply(file: &mut FileDiff) {
+pub(crate) fn apply(file: &mut FileDiff) {
     let (syntaxes, syntax, theme) = resources(&file.path);
     let mut old = HighlightLines::new(syntax, theme);
     let mut new = HighlightLines::new(syntax, theme);
@@ -35,7 +35,7 @@ pub(super) fn apply(file: &mut FileDiff) {
     }
 }
 
-pub(super) fn source(path: &str, source: &str) -> Vec<Vec<SyntaxSpan>> {
+pub(crate) fn highlight_source(path: &str, source: &str) -> Vec<Vec<SyntaxSpan>> {
     let (syntaxes, syntax, theme) = resources(path);
     let mut highlighter = HighlightLines::new(syntax, theme);
     source

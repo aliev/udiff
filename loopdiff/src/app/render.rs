@@ -1,7 +1,8 @@
 use super::{BG, BLUE, COMMENT, COMMENT_BG, GREEN, GREEN_BG, RED, TEXT};
 use crate::{
     comment::{Comment, CommentBody},
-    model::{FileStatus, SyntaxSpan, highlight_source},
+    highlight::highlight_source,
+    model::{FileStatus, SyntaxSpan},
 };
 use ratatui::{
     style::{Color, Modifier, Style},

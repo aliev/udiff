@@ -27,7 +27,7 @@ pub struct View<'a> {
     pub pane: &'a DiffPane,
     pub tree: &'a FileTree,
     pub editor: &'a CommentEditor,
-    pub revision: Option<(usize, usize, u64, super::RevisionOrigin)>,
+    pub revision: Option<(usize, usize, u64, bool)>,
 }
 
 impl Statusline {
@@ -80,7 +80,6 @@ impl Statusline {
                     (" SUGGESTION ", GREEN)
                 }
                 _ if active_comment.is_some() => (" COMMENT ", COMMENT),
-                _ if pane.file_view => (" FILE VIEW ", BLUE),
                 _ => (" NORMAL ", BLUE),
             };
             let right = if let Some((message, shown_at)) = &self.notice
@@ -106,7 +105,6 @@ impl Statusline {
                     _ if session.reviewed_files.contains(&pane.file) => {
                         " Space reopen review · [/] comments · ? help ".into()
                     }
-                    _ if pane.file_view => " o diff view · Space reviewed · ? help ".into(),
                     _ => {
                         let line = &pane.active_lines(&session.files)[pane.cursor];
                         let location = match (line.old, line.new) {
@@ -134,11 +132,11 @@ impl Statusline {
                             Style::default().fg(TEXT),
                         ));
                     }
-                    if let Some((position, total, number, origin)) = revision.as_ref() {
-                        let identity = if origin == &super::RevisionOrigin::Context {
+                    if let Some((position, total, number, is_context)) = revision.as_ref() {
+                        let identity = if *is_context {
                             "context".to_owned()
                         } else {
-                            format!("#{number} · {}", origin.as_str())
+                            format!("#{number}")
                         };
                         spans.push(Span::styled(
                             format!(" · revision {position}/{total} · {identity}"),

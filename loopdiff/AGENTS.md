@@ -20,19 +20,24 @@ of Git repositories or review persistence formats.
 - `src/input.rs`: the `DiffSource` boundary and stdin implementation.
 - `src/terminal.rs`: terminal lifecycle, event loop, and external effects.
 - `src/model.rs`: unified-diff parsing, file/line models, syntax highlighting.
-- `src/model/highlight.rs`: the Syntect implementation.
+- `src/highlight.rs`: the Syntect implementation.
 - `src/comment.rs`: the in-memory comment and code-suggestion model.
 - `src/app.rs`: the UI composition root; it only declares the assembled parts.
 - `src/app/command.rs`: the `Command`/`Effect` boundary.
 - `src/app/session.rs`: diff, comments, reviewed state, and comment history.
 - `src/app/diff_pane.rs`: diff viewport state and navigation semantics.
-- `src/app/diff_view.rs`: diff and full-file rendering.
+- `src/app/diff_view.rs`: diff rendering.
 - `src/app/file_tree.rs`: explorer state, navigation, filtering, and rendering.
 - `src/app/comment_editor.rs`: UTF-8-safe editor state and actions.
+- `src/app/navigation.rs`: file selection, sidebar focus, and search flow.
+- `src/app/review.rs`: comment, suggestion, export, and reviewed-file workflows.
+- `src/app/revisions.rs`: independent state for watched revisions.
+- `src/app/view.rs`: top-level screen layout.
 - `src/app/statusline.rs` and `help.rs`: focused UI components.
-- `src/app/controller.rs`: event and action coordination between components.
+- `src/app/controller.rs`: concise keyboard/mouse routing and command boundary.
 - `src/app/view_helpers.rs`: terminal-width-aware rendering primitives.
 - `src/app/tests.rs`: cross-component UI characterization tests.
+- `ARCHITECTURE.md`: reading order and ownership map.
 - `README.md`: installation, usage, and key bindings.
 
 ## Development Commands
@@ -63,8 +68,11 @@ cat changes.patch | cargo run --release
 
 - Diff semantics belong in `model.rs`.
 - Comment and suggestion data belongs in `comment.rs`.
-- Interaction and rendering state belong in `app.rs`.
-- Input and terminal lifecycle belong in `main.rs`.
+- Review workflows belong in `app/review.rs`; navigation belongs in
+  `app/navigation.rs`.
+- Rendering state belongs to its concrete component under `app/`.
+- Input adapters belong in `input.rs`; terminal lifecycle belongs in
+  `terminal.rs`.
 
 Do not add Git subprocess behavior, repository discovery, persistent review
 formats, agent protocols, roles, replies, or authors. Review items exist only

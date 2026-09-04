@@ -1,5 +1,6 @@
 mod app;
 mod comment;
+mod highlight;
 mod input;
 mod model;
 mod terminal;

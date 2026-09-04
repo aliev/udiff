@@ -8,16 +8,21 @@ mod diff_view;
 mod editor;
 mod file_tree;
 mod help;
+mod navigation;
 mod render;
+mod review;
+mod revisions;
 mod search;
 mod session;
 mod statusline;
+mod view;
 mod view_helpers;
-pub use command::{Command, EditorTarget, Effect, RevisionOrigin};
+pub use command::{Command, EditorTarget, Effect};
 use comment_editor::CommentEditor;
 use diff_pane::DiffPane;
 use file_tree::FileTree;
 use help::Help;
+use revisions::RevisionState;
 use session::Session;
 use statusline::Statusline;
 
@@ -46,49 +51,24 @@ pub(super) enum Focus {
     Filter,
     Editor,
 }
-enum Outcome {
-    Continue,
-    Finish,
-    ResetWatch,
-    Yank(String),
-    LoadFileView(usize),
-    OpenEditor(EditorTarget),
-}
-
 pub struct App {
+    // Current review.
     session: Session,
     diff_pane: DiffPane,
+    file_tree: FileTree,
+    comment_editor: CommentEditor,
+
+    // Shared UI state.
     focus: Focus,
     search_return_focus: Focus,
-    comment_editor: CommentEditor,
-    file_tree: FileTree,
     help: Help,
     statusline: Statusline,
-    batch_number: u64,
-    revision_origin: RevisionOrigin,
-    batch_states: Vec<Option<BatchState>>,
-    active_batch: usize,
+
+    // Watch-mode history. The active revision uses the fields above.
+    revision_number: u64,
+    revision_states: Vec<Option<RevisionState>>,
+    active_revision: usize,
     watching: bool,
-}
-
-struct BatchState {
-    number: u64,
-    origin: RevisionOrigin,
-    session: Session,
-    diff_pane: DiffPane,
-    file_tree: FileTree,
-}
-
-impl BatchState {
-    fn new(number: u64, files: Vec<crate::model::FileDiff>, origin: RevisionOrigin) -> Self {
-        Self {
-            number,
-            origin,
-            diff_pane: DiffPane::new(&files),
-            session: Session::new(files, Vec::new()),
-            file_tree: FileTree::default(),
-        }
-    }
 }
 
 #[cfg(test)]

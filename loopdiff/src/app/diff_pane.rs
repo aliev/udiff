@@ -22,22 +22,11 @@ pub enum KeyAction {
     Copy(String),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FileViewAction {
-    None,
-    Request(usize),
-    Notice(&'static str),
-}
-
 pub struct DiffPane {
     pub file: usize,
     pub cursor: usize,
     pub scroll: usize,
     pub file_cursors: Vec<usize>,
-    pub file_view_cursors: Vec<usize>,
-    pub file_views: Vec<Option<Vec<DiffLine>>>,
-    pub file_views_loaded: Vec<bool>,
-    pub file_view: bool,
     pub range_anchor: Option<usize>,
     pub visual_mode: Option<VisualMode>,
     pub visual_col: usize,
@@ -63,10 +52,6 @@ impl DiffPane {
             cursor: first,
             scroll: 0,
             file_cursors: vec![0; count],
-            file_view_cursors: vec![0; count],
-            file_views: vec![None; count],
-            file_views_loaded: vec![false; count],
-            file_view: false,
             range_anchor: None,
             visual_mode: None,
             visual_col: 0,
@@ -82,11 +67,7 @@ impl DiffPane {
     }
 
     pub fn active_lines<'a>(&'a self, files: &'a [FileDiff]) -> &'a [DiffLine] {
-        if self.file_view {
-            self.file_views[self.file].as_deref().unwrap_or_default()
-        } else {
-            &files[self.file].lines
-        }
+        &files[self.file].lines
     }
 
     pub fn draw(
@@ -137,86 +118,16 @@ impl DiffPane {
         }
     }
 
-    pub fn switch_file(&mut self, file: usize, files: &[FileDiff]) -> bool {
+    pub fn switch_file(&mut self, file: usize, files: &[FileDiff]) {
         if file >= files.len() {
-            return false;
+            return;
         }
-        if self.file_view {
-            self.file_view_cursors[self.file] = self.cursor;
-        } else {
-            self.file_cursors[self.file] = self.cursor;
-        }
+        self.file_cursors[self.file] = self.cursor;
         self.file = file;
-        let lost_file_view = self.file_view && self.file_views[file].is_none();
-        if lost_file_view {
-            self.file_view = false;
-        }
-        let stored = if self.file_view {
-            self.file_view_cursors[file]
-        } else {
-            self.file_cursors[file]
-        };
+        let stored = self.file_cursors[file];
         self.cursor = stored.min(self.active_lines(files).len().saturating_sub(1));
         self.scroll = 0;
         self.range_anchor = None;
-        lost_file_view
-    }
-
-    pub fn request_or_toggle_file_view(&mut self, files: &[FileDiff]) -> FileViewAction {
-        if !self.file_view && !self.file_views_loaded[self.file] {
-            return FileViewAction::Request(self.file);
-        }
-        self.toggle_file_view(files)
-    }
-
-    pub fn finish_file_view_load(
-        &mut self,
-        file: usize,
-        lines: Option<Vec<DiffLine>>,
-        files: &[FileDiff],
-    ) -> FileViewAction {
-        if file >= files.len() {
-            return FileViewAction::None;
-        }
-        self.file_views[file] = lines;
-        self.file_views_loaded[file] = true;
-        if file != self.file {
-            return FileViewAction::None;
-        }
-        if self.file_views[file].is_some() {
-            self.toggle_file_view(files)
-        } else {
-            FileViewAction::Notice("full file unavailable for this diff")
-        }
-    }
-
-    pub fn toggle_file_view(&mut self, files: &[FileDiff]) -> FileViewAction {
-        self.range_anchor = None;
-        self.visual_mode = None;
-        self.visual_col = 0;
-        if self.file_view {
-            self.file_view_cursors[self.file] = self.cursor;
-            let line = self.cursor.saturating_add(1) as u32;
-            self.file_view = false;
-            self.cursor =
-                self.file_cursors[self.file].min(files[self.file].lines.len().saturating_sub(1));
-            self.jump_to_line(line, files);
-            self.scroll = 0;
-            return FileViewAction::Notice("diff view");
-        }
-        let Some(lines) = self.file_views[self.file].as_ref() else {
-            return FileViewAction::Notice("full file unavailable for this diff");
-        };
-        self.file_cursors[self.file] = self.cursor;
-        let target = files[self.file].lines[self.cursor]
-            .review_line()
-            .unwrap_or(1)
-            .saturating_sub(1) as usize;
-        self.file_view = true;
-        self.cursor = target.min(lines.len().saturating_sub(1));
-        self.file_view_cursors[self.file] = self.cursor;
-        self.scroll = self.cursor.saturating_sub(3);
-        FileViewAction::Notice("full file view · o return to diff")
     }
 
     pub fn character_selection(
@@ -342,7 +253,7 @@ impl DiffPane {
                     .saturating_sub(1);
                 self.visual_col = (self.visual_col + 1).min(maximum);
             }
-            KeyCode::Char('c') if focused && !self.file_view => {
+            KeyCode::Char('c') if focused => {
                 self.visual_mode = None;
                 self.range_anchor = self.range_anchor.is_none().then_some(self.cursor);
             }
@@ -397,6 +308,5 @@ mod tests {
         let pane = DiffPane::new(&files);
         assert_eq!(pane.file_cursors, vec![0, 0]);
         assert_eq!(pane.current(&files).path, "a");
-        assert!(!pane.file_view);
     }
 }

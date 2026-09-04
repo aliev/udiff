@@ -45,14 +45,12 @@ fn watched_batches_follow_latest_and_keep_independent_state() {
     let mut app = App::new_watching(10, first);
     app.session.reviewed_files.insert(0);
 
-    app.update(Command::BatchReceived {
+    app.update(Command::RevisionReceived {
         number: 11,
         files: second,
-        origin: RevisionOrigin::Human("Ada".into()),
     });
 
-    assert_eq!(app.batch_number, 11);
-    assert_eq!(app.revision_origin, RevisionOrigin::Human("Ada".into()));
+    assert_eq!(app.revision_number, 11);
     assert_eq!(app.current().path, "second.rs");
     assert!(app.session.reviewed_files.is_empty());
 
@@ -60,8 +58,7 @@ fn watched_batches_follow_latest_and_keep_independent_state() {
         KeyCode::Char(PREVIOUS_BATCH_KEY),
         KeyModifiers::NONE,
     ));
-    assert_eq!(app.batch_number, 10);
-    assert_eq!(app.revision_origin, RevisionOrigin::Observed);
+    assert_eq!(app.revision_number, 10);
     assert_eq!(app.current().path, "first.rs");
     assert!(app.session.reviewed_files.contains(&0));
 
@@ -69,8 +66,7 @@ fn watched_batches_follow_latest_and_keep_independent_state() {
         KeyCode::Char(NEXT_BATCH_KEY),
         KeyModifiers::NONE,
     ));
-    assert_eq!(app.batch_number, 11);
-    assert_eq!(app.revision_origin, RevisionOrigin::Human("Ada".into()));
+    assert_eq!(app.revision_number, 11);
 }
 
 #[test]
@@ -80,71 +76,43 @@ fn piped_context_precedes_numbered_watch_revisions() {
     let live = parse_unified_diff("--- live.rs\n+++ live.rs\n@@ -1 +1 @@\n-old\n+live\n");
     let mut app = App::new_watching_context(context);
 
-    assert_eq!(app.batch_number, 0);
-    assert_eq!(app.revision_origin, RevisionOrigin::Context);
-    app.update(Command::BatchReceived {
+    assert_eq!(app.revision_number, 0);
+    app.update(Command::RevisionReceived {
         number: 1,
         files: live,
-        origin: RevisionOrigin::Observed,
     });
-    assert_eq!(app.batch_number, 1);
+    assert_eq!(app.revision_number, 1);
     assert_eq!(app.current().path, "live.rs");
 
     app.key(KeyEvent::new(
         KeyCode::Char(PREVIOUS_BATCH_KEY),
         KeyModifiers::NONE,
     ));
-    assert_eq!(app.batch_number, 0);
-    assert_eq!(app.revision_origin, RevisionOrigin::Context);
+    assert_eq!(app.revision_number, 0);
     assert_eq!(app.current().path, "context.rs");
-}
-
-#[test]
-fn shift_s_copies_only_the_current_human_revision() {
-    let first = parse_unified_diff("--- first.rs\n+++ first.rs\n@@ -1 +1 @@\n-old\n+first\n");
-    let second = parse_unified_diff("--- second.rs\n+++ second.rs\n@@ -1 +1 @@\n-old\n+second\n");
-    let mut app = App::new_watching(10, first);
-    let key = KeyEvent::new(KeyCode::Char('S'), KeyModifiers::SHIFT);
-
-    assert_eq!(app.update(Command::Key(key)), Effect::None);
-    app.update(Command::BatchReceived {
-        number: 11,
-        files: second,
-        origin: RevisionOrigin::Human("Ada".into()),
-    });
-
-    let Effect::Copy(handoff) = app.update(Command::Key(key)) else {
-        panic!("Shift+S should copy a human revision");
-    };
-    assert!(handoff.contains("Ada revision #11"));
-    assert!(handoff.contains("- second.rs"));
-    assert!(handoff.contains("-old\n+second"));
-    assert!(handoff.contains("pair-programming input from Ada"));
 }
 
 #[test]
 fn incoming_batch_does_not_interrupt_reviewing_history() {
     let files = || parse_unified_diff("--- file.rs\n+++ file.rs\n@@ -1 +1 @@\n-old\n+new\n");
     let mut app = App::new_watching(1, files());
-    app.update(Command::BatchReceived {
+    app.update(Command::RevisionReceived {
         number: 2,
         files: files(),
-        origin: RevisionOrigin::Observed,
     });
     app.key(KeyEvent::new(
         KeyCode::Char(PREVIOUS_BATCH_KEY),
         KeyModifiers::NONE,
     ));
 
-    app.update(Command::BatchReceived {
+    app.update(Command::RevisionReceived {
         number: 3,
         files: files(),
-        origin: RevisionOrigin::Observed,
     });
 
-    assert_eq!(app.batch_number, 1);
-    assert_eq!(app.active_batch, 0);
-    assert_eq!(app.batch_states.len(), 3);
+    assert_eq!(app.revision_number, 1);
+    assert_eq!(app.active_revision, 0);
+    assert_eq!(app.revision_states.len(), 3);
 }
 
 #[test]
@@ -159,31 +127,21 @@ fn e_requests_opening_the_current_file_in_editor() {
         ))),
         Effect::OpenEditor(EditorTarget {
             path: "src/a.rs".into(),
-            line: None,
-            column: None,
-            capture_changes: false,
         })
     );
 }
 
 #[test]
-fn s_opens_the_current_code_location_for_editing() {
-    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -9 +9 @@\n-old\n+    new\n";
+fn pair_coding_shortcuts_are_unbound() {
+    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
-    app.diff_pane.cursor = 2;
 
-    assert_eq!(
-        app.update(Command::Key(KeyEvent::new(
-            KeyCode::Char('s'),
-            KeyModifiers::NONE,
-        ))),
-        Effect::OpenEditor(EditorTarget {
-            path: "src/a.rs".into(),
-            line: Some(9),
-            column: Some(5),
-            capture_changes: true,
-        })
-    );
+    for (key, modifiers) in [('s', KeyModifiers::NONE), ('S', KeyModifiers::SHIFT)] {
+        assert_eq!(
+            app.update(Command::Key(KeyEvent::new(KeyCode::Char(key), modifiers,))),
+            Effect::None,
+        );
+    }
 }
 
 #[test]
@@ -226,16 +184,12 @@ fn current_file_marker_stays_at_the_left_edge_for_nested_paths() {
 }
 
 #[test]
-fn long_code_lines_wrap_in_diff_and_file_views() {
+fn long_code_lines_wrap_in_diff_view() {
     let code = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789WRAPPED";
     let diff = format!(
         "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1 @@\n+{code}\n"
     );
     let mut app = App::new(parse_unified_diff(&diff), Vec::new());
-    app.set_file_views(vec![Some(crate::model::file_view_lines(
-        "main.go",
-        &format!("{code}\n"),
-    ))]);
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     let row_text = |terminal: &Terminal<TestBackend>, row| {
         (36..100)
@@ -252,14 +206,10 @@ fn long_code_lines_wrap_in_diff_and_file_views() {
 
     terminal.draw(|frame| app.draw(frame)).unwrap();
     assert!(row_text(&terminal, 4).contains("WRAPPED"));
-
-    app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
-    terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert!(row_text(&terminal, 3).contains("WRAPPED"));
 }
 
 #[test]
-fn last_wrapped_line_remains_visible_at_the_end_of_diff_and_file_views() {
+fn last_wrapped_line_remains_visible_at_the_end_of_diff() {
     let source = (1..=70)
         .map(|number| {
             if number == 70 {
@@ -278,9 +228,6 @@ fn last_wrapped_line_remains_visible_at_the_end_of_diff_and_file_views() {
         "diff --git a/tasks.md b/tasks.md\n--- /dev/null\n+++ b/tasks.md\n@@ -0,0 +1,70 @@\n{added}"
     );
     let mut app = App::new(parse_unified_diff(&diff), Vec::new());
-    app.set_file_views(vec![Some(crate::model::file_view_lines(
-        "tasks.md", &source,
-    ))]);
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     let last_line_is_visible = |terminal: &Terminal<TestBackend>| {
         terminal
@@ -296,80 +243,6 @@ fn last_wrapped_line_remains_visible_at_the_end_of_diff_and_file_views() {
     app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
     assert!(last_line_is_visible(&terminal));
-
-    app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
-    terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert!(last_line_is_visible(&terminal));
-}
-
-#[test]
-fn o_toggles_full_file_and_preserves_diff_position() {
-    let diff = "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -8 +8 @@\n-old\n+new\n";
-    let mut app = App::new(parse_unified_diff(diff), Vec::new());
-    app.diff_pane.cursor = 2;
-    app.set_file_views(vec![Some(crate::model::file_view_lines(
-        "src/main.rs",
-        "one\ntwo\nthree\nfour\nfive\nsix\nseven\nnew\nnine\n",
-    ))]);
-
-    app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
-    assert!(app.diff_pane.file_view);
-    assert_eq!(app.diff_pane.cursor, 7);
-    assert_eq!(
-        app.diff_pane.active_lines(&app.session.files)[app.diff_pane.cursor].text,
-        "new"
-    );
-
-    app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
-    assert!(!app.diff_pane.file_view);
-    assert_eq!(app.diff_pane.cursor, 2);
-}
-
-#[test]
-fn full_file_is_requested_lazily_and_cached() {
-    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
-    let mut app = App::new(parse_unified_diff(diff), Vec::new());
-
-    assert!(matches!(
-        app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE)),
-        Outcome::LoadFileView(0)
-    ));
-    assert!(!app.diff_pane.file_view);
-
-    app.finish_file_view_load(
-        0,
-        Some(crate::model::file_view_lines("a.rs", "new\ncontext\n")),
-    );
-    assert!(app.diff_pane.file_view);
-
-    app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
-    assert!(!app.diff_pane.file_view);
-    assert!(matches!(
-        app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE)),
-        Outcome::Continue
-    ));
-    assert!(app.diff_pane.file_view);
-}
-
-#[test]
-fn full_file_view_is_read_only_but_supports_visual_yank() {
-    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
-    let mut app = App::new(parse_unified_diff(diff), Vec::new());
-    app.set_file_views(vec![Some(crate::model::file_view_lines(
-        "a.rs",
-        "let first = 1;\nlet second = 2;\n",
-    ))]);
-    app.key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::NONE));
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.focus, Focus::Diff);
-    assert!(app.comment_editor.anchor.is_none());
-
-    app.key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT));
-    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
-    let outcome = app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
-    assert!(
-        matches!(outcome, Outcome::Yank(ref text) if text == "let first = 1;\nlet second = 2;")
-    );
 }
 
 #[test]
@@ -621,7 +494,7 @@ fn shift_v_selects_lines_and_y_yanks_code_without_diff_prefixes() {
     app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     let outcome = app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
 
-    assert!(matches!(outcome, Outcome::Yank(ref code) if code == "old\nnew"));
+    assert!(matches!(outcome, Effect::Copy(ref code) if code == "old\nnew"));
     assert!(app.diff_pane.range_anchor.is_none());
 }
 
@@ -650,7 +523,7 @@ fn shift_y_copies_comments_as_plain_text() {
 
     let outcome = app.key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT));
 
-    let Outcome::Yank(text) = outcome else {
+    let Effect::Copy(text) = outcome else {
         panic!("Shift+Y should copy comments");
     };
     assert!(text.starts_with("1. a.rs (old lines 1; new lines 1)"));
@@ -678,10 +551,9 @@ fn shift_y_copies_comments_from_all_watched_batches() {
     app.session
         .comments
         .push(comment("first", "First revision"));
-    app.update(Command::BatchReceived {
+    app.update(Command::RevisionReceived {
         number: 2,
         files: files(),
-        origin: RevisionOrigin::Observed,
     });
     app.session
         .comments
@@ -689,7 +561,7 @@ fn shift_y_copies_comments_from_all_watched_batches() {
 
     let outcome = app.key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT));
 
-    let Outcome::Yank(text) = outcome else {
+    let Effect::Copy(text) = outcome else {
         panic!("Shift+Y should copy comments");
     };
     assert!(text.contains("1. a.rs"));
@@ -719,10 +591,9 @@ fn shift_y_skips_comments_from_reviewed_files_in_every_batch() {
         .comments
         .push(comment("first", "Reviewed revision"));
     app.session.reviewed_files.insert(0);
-    app.update(Command::BatchReceived {
+    app.update(Command::RevisionReceived {
         number: 2,
         files: files(),
-        origin: RevisionOrigin::Observed,
     });
     app.session
         .comments
@@ -730,7 +601,7 @@ fn shift_y_skips_comments_from_reviewed_files_in_every_batch() {
 
     let outcome = app.key(KeyEvent::new(KeyCode::Char('Y'), KeyModifiers::SHIFT));
 
-    let Outcome::Yank(text) = outcome else {
+    let Effect::Copy(text) = outcome else {
         panic!("Shift+Y should copy comments from unreviewed files");
     };
     assert!(!text.contains("Reviewed revision"));
@@ -748,7 +619,7 @@ fn v_selects_characters_for_yank_without_creating_comment_range() {
     app.key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE));
     let outcome = app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
 
-    assert!(matches!(outcome, Outcome::Yank(ref code) if code == "hel"));
+    assert!(matches!(outcome, Effect::Copy(ref code) if code == "hel"));
     assert!(app.diff_pane.range_anchor.is_none());
 }
 
@@ -925,7 +796,7 @@ fn hunk_header_supports_characterwise_visual_selection_and_yank() {
     );
     let outcome = app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
 
-    assert!(matches!(outcome, Outcome::Yank(ref text) if text == "@@ "));
+    assert!(matches!(outcome, Effect::Copy(ref text) if text == "@@ "));
 }
 
 #[test]

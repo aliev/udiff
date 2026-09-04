@@ -1,11 +1,5 @@
+use crate::highlight::apply as highlight;
 use regex::Regex;
-
-mod highlight;
-use highlight::apply as highlight;
-
-pub(crate) fn highlight_source(path: &str, source: &str) -> Vec<Vec<SyntaxSpan>> {
-    highlight::source(path, source)
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LineKind {
@@ -58,14 +52,6 @@ pub enum FileStatus {
     Modified,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum FileViewChange {
-    Added,
-    Modified,
-    Deleted,
-    Removed,
-}
-
 #[derive(Clone, Debug)]
 pub struct FileDiff {
     pub path: String,
@@ -109,111 +95,6 @@ impl FileDiff {
             .filter(|l| l.kind == LineKind::Remove)
             .count()
     }
-}
-
-pub fn render_unified_diff(files: &[FileDiff]) -> String {
-    let mut output = String::new();
-    for file in files {
-        let old_path = file.old_path.as_deref().unwrap_or(&file.path);
-        output.push_str(&format!("diff --git a/{old_path} b/{}\n", file.path));
-        match file.status {
-            FileStatus::Added => output.push_str("new file mode 100644\n"),
-            FileStatus::Deleted => output.push_str("deleted file mode 100644\n"),
-            FileStatus::Renamed => {
-                output.push_str(&format!(
-                    "rename from {old_path}\nrename to {}\n",
-                    file.path
-                ));
-            }
-            FileStatus::Modified => {}
-        }
-        let old_header = if file.status == FileStatus::Added {
-            "/dev/null".into()
-        } else {
-            format!("a/{old_path}")
-        };
-        let new_header = if file.status == FileStatus::Deleted {
-            "/dev/null".into()
-        } else {
-            format!("b/{}", file.path)
-        };
-        output.push_str(&format!("--- {old_header}\n+++ {new_header}\n"));
-        for line in &file.lines {
-            match line.kind {
-                LineKind::Add => output.push('+'),
-                LineKind::Remove => output.push('-'),
-                LineKind::Context => output.push(' '),
-                LineKind::Hunk | LineKind::Meta => {}
-            }
-            output.push_str(&line.text);
-            output.push('\n');
-        }
-    }
-    output
-}
-
-pub fn file_view_changes(file: &FileDiff) -> Vec<(u32, FileViewChange)> {
-    let mut changes = Vec::new();
-    let last_new_line = file
-        .lines
-        .iter()
-        .filter_map(|line| line.new)
-        .max()
-        .unwrap_or(1);
-    let mut position = 0;
-    let mut hunk_new_start = 1;
-    while position < file.lines.len() {
-        if file.lines[position].kind == LineKind::Hunk {
-            if let Some((_, _, start, _)) = hunk_ranges(&file.lines[position].text) {
-                hunk_new_start = start;
-            }
-            position += 1;
-            continue;
-        }
-        if !matches!(file.lines[position].kind, LineKind::Add | LineKind::Remove) {
-            position += 1;
-            continue;
-        }
-        let start = position;
-        while position < file.lines.len()
-            && matches!(file.lines[position].kind, LineKind::Add | LineKind::Remove)
-        {
-            position += 1;
-        }
-        let block = &file.lines[start..position];
-        let has_removals = block.iter().any(|line| line.kind == LineKind::Remove);
-        let additions = block
-            .iter()
-            .filter(|line| line.kind == LineKind::Add)
-            .filter_map(|line| line.new)
-            .collect::<Vec<_>>();
-        if additions.is_empty() && has_removals {
-            let next = file.lines[position..].iter().find_map(|line| line.new);
-            let previous = file.lines[..start]
-                .iter()
-                .rev()
-                .find_map(|line| line.new)
-                .map(|line| line.saturating_add(1));
-            let anchor = next
-                .or(previous)
-                .unwrap_or(hunk_new_start)
-                .max(1)
-                .min(last_new_line);
-            changes.push((anchor, FileViewChange::Deleted));
-        } else {
-            changes.extend(additions.into_iter().map(|line| {
-                (
-                    line,
-                    if has_removals {
-                        FileViewChange::Modified
-                    } else {
-                        FileViewChange::Added
-                    },
-                )
-            }));
-        }
-    }
-    changes
 }
 
 pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
@@ -328,37 +209,6 @@ pub fn parse_unified_diff(raw: &str) -> Vec<FileDiff> {
 }
 
 #[cfg(test)]
-pub fn file_view_lines(path: &str, contents: &str) -> Vec<DiffLine> {
-    let mut file = FileDiff {
-        path: path.into(),
-        old_path: None,
-        status: FileStatus::Modified,
-        lines: contents
-            .lines()
-            .enumerate()
-            .map(|(index, text)| DiffLine {
-                text: text.into(),
-                kind: LineKind::Context,
-                old: u32::try_from(index + 1).ok(),
-                new: u32::try_from(index + 1).ok(),
-                syntax: Vec::new(),
-            })
-            .collect(),
-    };
-    if file.lines.is_empty() {
-        file.lines.push(DiffLine {
-            text: String::new(),
-            kind: LineKind::Context,
-            old: Some(1),
-            new: Some(1),
-            syntax: Vec::new(),
-        });
-    }
-    highlight(&mut file);
-    file.lines
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     const SAMPLE: &str = "diff --git a/app.py b/app.py\n--- a/app.py\n+++ b/app.py\n@@ -1,2 +1,3 @@\n old\n-bad()\n+good()\n+extra()\n";
@@ -371,39 +221,10 @@ mod tests {
     }
 
     #[test]
-    fn parsed_revisions_render_back_to_unified_diff() {
-        let files = parse_unified_diff(SAMPLE);
-        assert_eq!(render_unified_diff(&files), SAMPLE);
-    }
-
-    #[test]
     fn parses_hunk_ranges() {
         assert_eq!(
             hunk_ranges("@@ -10,3 +12,5 @@ fn main"),
             Some((10, 12, 12, 16))
-        );
-    }
-
-    #[test]
-    fn file_view_changes_match_editor_style_gutter_markers() {
-        let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,6 +1,6 @@\n unchanged\n-old\n+changed\n unchanged\n+added\n middle\n-removed\n tail\n";
-        let files = parse_unified_diff(diff);
-
-        assert_eq!(
-            file_view_changes(&files[0]),
-            vec![
-                (2, FileViewChange::Modified),
-                (4, FileViewChange::Added),
-                (6, FileViewChange::Deleted),
-            ]
-        );
-
-        let deletion_at_eof = parse_unified_diff(
-            "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1 @@\n keep\n-removed\n",
-        );
-        assert_eq!(
-            file_view_changes(&deletion_at_eof[0]),
-            vec![(1, FileViewChange::Deleted)]
         );
     }
 
