@@ -147,7 +147,7 @@ OSC 52 clipboard access.
 | `Shift+R` | clear in-memory revisions and return to the waiting screen |
 | `e` | open the current file in `$EDITOR` |
 | `/` | filter files through the statusline |
-| `h/l`, left/right | horizontally scroll the sidebar |
+| `h/l`, left/right | close/open a tree node in the sidebar |
 | `{` / `}` | previous/next revision |
 | `Ctrl+U` / `Ctrl+D` | half-page up/down |
 | `q` | quit |

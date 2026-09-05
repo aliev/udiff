@@ -204,7 +204,7 @@ impl App {
             }
         } else if self.file_tree.contains(mouse.column, mouse.row) {
             self.focus = Focus::Files;
-            if let Some(target) = self.file_tree.target_at(mouse.row) {
+            if let Some(target) = self.file_tree.click(mouse.column, mouse.row) {
                 self.select_side_target(target, true);
             }
         }

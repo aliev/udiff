@@ -61,7 +61,7 @@ impl App {
         if let Some(next) = next {
             self.switch_file(next);
             if self.focus == Focus::Files {
-                self.file_tree.select(Some(SideTarget::File(next)), true);
+                self.file_tree.select(Some(SideTarget::File(next)));
             }
         }
     }
@@ -205,7 +205,7 @@ impl App {
         {
             if self.focus == Focus::Files {
                 self.file_tree
-                    .select(Some(SideTarget::File(self.diff_pane.file)), false);
+                    .select(Some(SideTarget::File(self.diff_pane.file)));
             }
             self.notice("comment deleted · u undo");
         }
@@ -214,13 +214,10 @@ impl App {
     pub(super) fn undo_delete_comment(&mut self) {
         if let Some(restored) = self.session.restore_comment() {
             if self.focus == Focus::Files {
-                self.file_tree.select(
-                    Some(SideTarget::Comment {
-                        file: self.diff_pane.file,
-                        comment: restored,
-                    }),
-                    false,
-                );
+                self.file_tree.select(Some(SideTarget::Comment {
+                    file: self.diff_pane.file,
+                    comment: restored,
+                }));
             }
             self.notice("deleted comment restored");
         }

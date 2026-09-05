@@ -889,7 +889,7 @@ fn empty_suggestion_is_kept_and_enter_reopens_it_in_suggestion_mode() {
 }
 
 #[test]
-fn sidebar_spans_can_scroll_horizontally() {
+fn span_cropping_handles_unicode_boundaries() {
     let spans = vec![
         Span::styled("  ", Style::default().fg(MUTED)),
         Span::styled("длинный.rs", Style::default().fg(TEXT)),
@@ -1252,6 +1252,8 @@ fn sidebar_arrows_continue_after_selecting_a_comment() {
         },
         true,
     );
+    let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
 
     app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
 
@@ -1283,9 +1285,12 @@ fn sidebar_scrolls_selected_file_into_view() {
     terminal.draw(|frame| app.draw(frame)).unwrap();
 
     assert!(app.file_tree.scroll_y() > 0);
-    assert!(
-        app.file_tree
-            .visible_targets()
-            .contains(&Some(SideTarget::File(29)))
-    );
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("file_29.rs"));
 }

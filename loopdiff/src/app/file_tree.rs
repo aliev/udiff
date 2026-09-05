@@ -1,21 +1,17 @@
-use super::{
-    BORDER, MUTED, SELECT_BG, SURFACE, TEXT,
-    render::{crop_spans, file_status_spans},
-    search::fuzzy,
-};
+use super::{BORDER, MUTED, SELECT_BG, SURFACE, TEXT, render::file_status_spans, search::fuzzy};
 use crate::{comment::Comment, model::FileDiff};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Paragraph},
 };
 use std::collections::HashSet;
-use unicode_width::UnicodeWidthStr;
+use tui_tree_widget::{Tree, TreeItem, TreeState};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Target {
     File(usize),
     Comment { file: usize, comment: usize },
@@ -28,24 +24,105 @@ pub enum SearchAction {
     Accept(Option<usize>),
 }
 
-#[derive(Clone)]
-struct Entry {
-    label: String,
-    depth: usize,
-    target: Option<Target>,
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum NodeId {
+    Folder(String),
+    File(usize),
+    Comment { file: usize, comment: usize },
+}
+
+impl NodeId {
+    fn target(&self) -> Option<Target> {
+        match *self {
+            Self::Folder(_) => None,
+            Self::File(file) => Some(Target::File(file)),
+            Self::Comment { file, comment } => Some(Target::Comment { file, comment }),
+        }
+    }
 }
 
 #[derive(Default)]
+struct Folder {
+    name: String,
+    path: String,
+    folders: Vec<Self>,
+    files: Vec<usize>,
+}
+
+impl Folder {
+    fn insert(&mut self, path: &str, file: usize) {
+        let parts = path.split('/').collect::<Vec<_>>();
+        let mut folder = self;
+        for part in parts.iter().take(parts.len().saturating_sub(1)) {
+            let path = if folder.path.is_empty() {
+                (*part).to_owned()
+            } else {
+                format!("{}/{}", folder.path, part)
+            };
+            let position = folder
+                .folders
+                .iter()
+                .position(|child| child.name == *part)
+                .unwrap_or_else(|| {
+                    folder.folders.push(Self {
+                        name: (*part).to_owned(),
+                        path,
+                        ..Self::default()
+                    });
+                    folder.folders.len() - 1
+                });
+            folder = &mut folder.folders[position];
+        }
+        folder.files.push(file);
+    }
+
+    fn items(&self, view: &View<'_>) -> Vec<TreeItem<'static, NodeId>> {
+        let mut items = self
+            .folders
+            .iter()
+            .map(|folder| folder.item(view))
+            .collect::<Vec<_>>();
+        items.extend(self.files.iter().map(|file| file_item(*file, view)));
+        items
+    }
+
+    fn item(&self, view: &View<'_>) -> TreeItem<'static, NodeId> {
+        TreeItem::new(
+            NodeId::Folder(self.path.clone()),
+            Line::from(Span::styled(
+                format!("{}/", self.name),
+                Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
+            )),
+            self.items(view),
+        )
+        .expect("folder children have unique identifiers")
+    }
+}
+
 pub struct FileTree {
     filter: String,
     restore_filter: String,
     no_match: bool,
     area: Rect,
-    row_map: Vec<Option<Target>>,
-    scroll_x: usize,
-    scroll_y: usize,
-    follow_selection: bool,
+    state: TreeState<NodeId>,
+    known_nodes: HashSet<Vec<NodeId>>,
     selection: Option<Target>,
+    selection_dirty: bool,
+}
+
+impl Default for FileTree {
+    fn default() -> Self {
+        Self {
+            filter: String::new(),
+            restore_filter: String::new(),
+            no_match: false,
+            area: Rect::default(),
+            state: TreeState::default(),
+            known_nodes: HashSet::new(),
+            selection: None,
+            selection_dirty: true,
+        }
+    }
 }
 
 pub struct View<'a> {
@@ -71,9 +148,9 @@ impl FileTree {
         self.selection
     }
 
-    pub fn select(&mut self, target: Option<Target>, follow: bool) {
+    pub fn select(&mut self, target: Option<Target>) {
         self.selection = target;
-        self.follow_selection = follow;
+        self.selection_dirty = true;
     }
 
     pub fn contains(&self, column: u16, row: u16) -> bool {
@@ -81,13 +158,19 @@ impl FileTree {
     }
 
     pub fn scroll_vertical(&mut self, delta: isize) {
-        self.scroll_y = self.scroll_y.saturating_add_signed(delta);
-        self.follow_selection = false;
+        if delta < 0 {
+            self.state.scroll_up(delta.unsigned_abs());
+        } else {
+            self.state.scroll_down(delta as usize);
+        }
     }
 
-    pub fn target_at(&self, terminal_row: u16) -> Option<Target> {
-        let row = terminal_row.saturating_sub(self.area.y) as usize;
-        self.row_map.get(row).copied().flatten()
+    pub fn click(&mut self, column: u16, row: u16) -> Option<Target> {
+        if !self.state.click_at(Position::new(column, row)) {
+            return None;
+        }
+        self.selection = self.selected_target();
+        self.selection
     }
 
     #[cfg(test)]
@@ -97,22 +180,18 @@ impl FileTree {
 
     #[cfg(test)]
     pub fn scroll_y(&self) -> usize {
-        self.scroll_y
+        self.state.get_offset()
     }
 
-    #[cfg(test)]
-    pub fn visible_targets(&self) -> &[Option<Target>] {
-        &self.row_map
-    }
     pub fn begin_search(&mut self) {
-        self.restore_filter = self.filter.clone();
+        self.restore_filter.clone_from(&self.filter);
         self.no_match = false;
     }
 
     pub fn search(&mut self, key: KeyEvent, view: &View<'_>) -> SearchAction {
         match key.code {
             KeyCode::Esc => {
-                self.filter = self.restore_filter.clone();
+                self.filter.clone_from(&self.restore_filter);
                 self.no_match = false;
                 SearchAction::Cancel
             }
@@ -123,7 +202,7 @@ impl FileTree {
                 let file = self.first_file(view);
                 self.no_match = file.is_none();
                 if file.is_some() {
-                    self.restore_filter = self.filter.clone();
+                    self.restore_filter.clone_from(&self.filter);
                 }
                 SearchAction::Accept(file)
             }
@@ -149,120 +228,26 @@ impl FileTree {
             _ => SearchAction::None,
         }
     }
-    fn entries(&self, view: &View<'_>) -> Vec<Entry> {
-        let mut out = Vec::new();
-        let matching = view
-            .files
-            .iter()
-            .enumerate()
-            .filter(|(_, file)| self.filter.is_empty() || fuzzy(&self.filter, &file.path))
-            .map(|(file, _)| file)
-            .collect::<Vec<_>>();
-        Self::append_files(&mut out, view, &matching);
-        out
-    }
-
-    fn append_files(out: &mut Vec<Entry>, view: &View<'_>, files: &[usize]) {
-        let mut seen = HashSet::new();
-        for &file_index in files {
-            let file = &view.files[file_index];
-            let parts: Vec<_> = file.path.split('/').collect();
-            for depth in 0..parts.len().saturating_sub(1) {
-                let key = parts[..=depth].join("/");
-                if seen.insert(key) {
-                    out.push(Entry {
-                        label: format!("{}/", parts[depth]),
-                        depth,
-                        target: None,
-                    });
-                }
-            }
-            out.push(Entry {
-                label: parts.last().unwrap_or(&file.path.as_str()).to_string(),
-                depth: parts.len().saturating_sub(1),
-                target: Some(Target::File(file_index)),
-            });
-            for (file_comment_number, (comment_index, comment)) in view
-                .comments
-                .iter()
-                .enumerate()
-                .filter(|(_, comment)| comment.path == file.path)
-                .enumerate()
-            {
-                let text = comment.first_text().replace('\n', " ");
-                let mut short = text.chars().take(20).collect::<String>();
-                if text.chars().count() > 20 {
-                    short.push('…');
-                }
-                let marker = if comment.body.is_suggestion() {
-                    "S#"
-                } else {
-                    "#"
-                };
-                out.push(Entry {
-                    label: format!(
-                        "{}  {marker}{}  {short}",
-                        comment.short_location(),
-                        file_comment_number + 1
-                    ),
-                    depth: parts.len(),
-                    target: Some(Target::Comment {
-                        file: file_index,
-                        comment: comment_index,
-                    }),
-                });
-            }
-        }
-    }
-
-    pub fn targets(&self, view: &View<'_>) -> Vec<Target> {
-        self.entries(view)
-            .into_iter()
-            .filter_map(|entry| entry.target)
-            .collect()
-    }
 
     pub fn first_file(&self, view: &View<'_>) -> Option<usize> {
-        self.targets(view)
-            .into_iter()
-            .find_map(|target| match target {
-                Target::File(file) => Some(file),
-                Target::Comment { .. } => None,
-            })
+        view.files
+            .iter()
+            .position(|file| self.filter.is_empty() || fuzzy(&self.filter, &file.path))
     }
 
-    pub fn navigate(&mut self, key: KeyEvent, view: &View<'_>) -> Option<Target> {
-        match key.code {
-            KeyCode::Char('h') | KeyCode::Left => {
-                self.scroll_x = self.scroll_x.saturating_sub(2);
-                return None;
-            }
-            KeyCode::Char('l') | KeyCode::Right => {
-                self.scroll_x = self.scroll_x.saturating_add(2);
-                return None;
-            }
-            KeyCode::Char('j') | KeyCode::Down | KeyCode::Char('k') | KeyCode::Up => {}
+    pub fn navigate(&mut self, key: KeyEvent) -> Option<Target> {
+        let changed = match key.code {
+            KeyCode::Char('j') | KeyCode::Down => self.state.key_down(),
+            KeyCode::Char('k') | KeyCode::Up => self.state.key_up(),
+            KeyCode::Char('h') | KeyCode::Left => self.state.key_left(),
+            KeyCode::Char('l') | KeyCode::Right => self.state.key_right(),
             _ => return None,
-        }
-        let targets = self.targets(view);
-        if targets.is_empty() {
+        };
+        if !changed {
             return None;
         }
-        let current = self.selection.unwrap_or(Target::File(view.current_file));
-        let index = targets
-            .iter()
-            .position(|target| *target == current)
-            .unwrap_or(0);
-        let delta = if matches!(key.code, KeyCode::Char('j') | KeyCode::Down) {
-            1
-        } else {
-            -1
-        };
-        let next = (index as isize + delta).clamp(0, targets.len() as isize - 1) as usize;
-        let target = targets[next];
-        self.selection = Some(target);
-        self.follow_selection = true;
-        Some(target)
+        self.selection = self.selected_target();
+        self.selection
     }
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, view: &View<'_>) {
@@ -270,9 +255,68 @@ impl FileTree {
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(0)])
             .split(area);
+        self.draw_summary(frame, rows[0], view);
+
         let list_area = rows[1];
         self.area = list_area;
+        let items = self.items(view);
+        open_new_nodes(
+            &items,
+            &mut self.state,
+            &mut self.known_nodes,
+            &mut Vec::new(),
+        );
+        self.sync_selection(&items, view.current_file);
+
+        let tree =
+            Tree::new(&items)
+                .expect("tree roots have unique identifiers")
+                .block(Block::default().borders(Borders::RIGHT).border_style(
+                    Style::default().fg(if view.focused { super::BLUE } else { BORDER }),
+                ))
+                .style(Style::default().bg(SURFACE))
+                .highlight_style(if view.focused {
+                    Style::default().bg(SELECT_BG).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().bg(super::BG)
+                })
+                .highlight_symbol("▌")
+                .node_closed_symbol("▸")
+                .node_open_symbol("▾")
+                .node_no_children_symbol("");
+        frame.render_stateful_widget(tree, list_area, &mut self.state);
+    }
+
+    fn items(&self, view: &View<'_>) -> Vec<TreeItem<'static, NodeId>> {
+        let mut root = Folder::default();
+        for (file, diff) in view.files.iter().enumerate() {
+            if self.filter.is_empty() || fuzzy(&self.filter, &diff.path) {
+                root.insert(&diff.path, file);
+            }
+        }
+        root.items(view)
+    }
+
+    fn sync_selection(&mut self, items: &[TreeItem<'_, NodeId>], current_file: usize) {
+        if !self.selection_dirty {
+            return;
+        }
+        let selected = self
+            .selection
+            .or(Some(Target::File(current_file)))
+            .and_then(|target| find_target(items, target, &mut Vec::new()))
+            .unwrap_or_default();
+        self.state.select(selected);
+        self.selection_dirty = false;
+    }
+
+    fn selected_target(&self) -> Option<Target> {
+        self.state.selected().last().and_then(NodeId::target)
+    }
+
+    fn draw_summary(&self, frame: &mut Frame, area: Rect, view: &View<'_>) {
         let complete = !view.files.is_empty() && view.reviewed_files.len() == view.files.len();
+        let remaining = view.files.len().saturating_sub(view.reviewed_files.len());
         let summary = if complete {
             format!(
                 "  {} files · {} comments",
@@ -280,11 +324,7 @@ impl FileTree {
                 view.comments.len()
             )
         } else {
-            format!(
-                "  {} left · {} comments",
-                view.files.len().saturating_sub(view.reviewed_files.len()),
-                view.comments.len()
-            )
+            format!("  {remaining} left · {} comments", view.comments.len())
         };
         frame.render_widget(
             Paragraph::new(Line::from(vec![
@@ -306,164 +346,111 @@ impl FileTree {
                     })),
             )
             .style(Style::default().bg(SURFACE)),
-            rows[0],
+            area,
         );
-        let entries = self.entries(view);
-        let content_width = entries
-            .iter()
-            .map(|entry| {
-                entry.depth * 2
-                    + match entry.target {
-                        Some(Target::File(file)) => {
-                            let comments = view
-                                .comments
-                                .iter()
-                                .filter(|comment| comment.path == view.files[file].path)
-                                .count();
-                            6 + UnicodeWidthStr::width(entry.label.as_str())
-                                + if comments == 0 {
-                                    0
-                                } else {
-                                    2 + comments.to_string().len()
-                                }
-                        }
-                        Some(Target::Comment { .. }) => {
-                            4 + UnicodeWidthStr::width(entry.label.as_str())
-                        }
-                        None => UnicodeWidthStr::width(entry.label.as_str()),
-                    }
-            })
-            .max()
-            .unwrap_or(0);
-        let viewport_width = list_area.width.saturating_sub(1) as usize;
-        self.scroll_x = self
-            .scroll_x
-            .min(content_width.saturating_sub(viewport_width));
-        let active = self.selection.unwrap_or(Target::File(view.current_file));
-        let active_row = entries
-            .iter()
-            .position(|entry| entry.target == Some(active))
-            .unwrap_or(0);
-        let height = list_area.height as usize;
-        self.scroll_y = self.scroll_y.min(entries.len().saturating_sub(height));
-        if self.follow_selection {
-            if active_row < self.scroll_y {
-                self.scroll_y = active_row;
-            } else if active_row >= self.scroll_y.saturating_add(height) {
-                self.scroll_y = active_row.saturating_sub(height.saturating_sub(1));
-            }
-            self.follow_selection = false;
+    }
+}
+
+fn file_item(file: usize, view: &View<'_>) -> TreeItem<'static, NodeId> {
+    let diff = &view.files[file];
+    let reviewed = view.reviewed_files.contains(&file);
+    let current = file == view.current_file;
+    let name = diff.path.rsplit('/').next().unwrap_or(&diff.path);
+    let comments = view
+        .comments
+        .iter()
+        .enumerate()
+        .filter(|(_, comment)| comment.path == diff.path)
+        .collect::<Vec<_>>();
+    let mut label = vec![Span::styled(
+        if reviewed { "✓ " } else { "  " },
+        Style::default().fg(if reviewed { super::GREEN } else { MUTED }),
+    )];
+    label.extend(file_status_spans(diff.status));
+    label.push(Span::raw(" "));
+    label.push(Span::styled(
+        name.to_owned(),
+        Style::default()
+            .fg(if reviewed && !current { MUTED } else { TEXT })
+            .add_modifier(if current {
+                Modifier::BOLD
+            } else {
+                Modifier::empty()
+            }),
+    ));
+    if !comments.is_empty() {
+        label.push(Span::styled(
+            format!("  {}", comments.len()),
+            Style::default().fg(super::COMMENT),
+        ));
+    }
+
+    let children = comments
+        .into_iter()
+        .enumerate()
+        .map(|(number, (comment, item))| comment_item(file, comment, number, item, view))
+        .collect();
+    TreeItem::new(NodeId::File(file), Line::from(label), children)
+        .expect("comment identifiers are unique")
+}
+
+fn comment_item(
+    file: usize,
+    comment: usize,
+    number: usize,
+    item: &Comment,
+    view: &View<'_>,
+) -> TreeItem<'static, NodeId> {
+    let text = item.first_text().replace('\n', " ");
+    let mut short = text.chars().take(20).collect::<String>();
+    if text.chars().count() > 20 {
+        short.push('…');
+    }
+    let marker = if item.body.is_suggestion() { "S#" } else { "#" };
+    let selected = file == view.current_file && view.active_comment == Some(comment);
+    TreeItem::new_leaf(
+        NodeId::Comment { file, comment },
+        Line::from(Span::styled(
+            format!("{}  {marker}{}  {short}", item.short_location(), number + 1),
+            Style::default()
+                .fg(if selected { TEXT } else { MUTED })
+                .bg(if selected { super::COMMENT_BG } else { SURFACE }),
+        )),
+    )
+}
+
+fn find_target(
+    items: &[TreeItem<'_, NodeId>],
+    target: Target,
+    parents: &mut Vec<NodeId>,
+) -> Option<Vec<NodeId>> {
+    for item in items {
+        parents.push(item.identifier().clone());
+        if item.identifier().target() == Some(target) {
+            return Some(parents.clone());
         }
-        let visible = entries
-            .into_iter()
-            .skip(self.scroll_y)
-            .take(height)
-            .collect::<Vec<_>>();
-        self.row_map = visible.iter().map(|entry| entry.target).collect();
-        let items = visible
-            .into_iter()
-            .map(|entry| {
-                let indent = "  ".repeat(entry.depth);
-                match entry.target {
-                    Some(Target::File(file_index)) => {
-                        let file = &view.files[file_index];
-                        let reviewed = view.reviewed_files.contains(&file_index);
-                        let current = file_index == view.current_file;
-                        let mut spans = vec![
-                            Span::styled(
-                                if current { "▌" } else { " " },
-                                Style::default().fg(if current { super::BLUE } else { SURFACE }),
-                            ),
-                            Span::raw(indent),
-                            Span::styled(
-                                if reviewed { "✓ " } else { "  " },
-                                Style::default().fg(if reviewed { super::GREEN } else { MUTED }),
-                            ),
-                        ];
-                        spans.extend(file_status_spans(file.status));
-                        spans.push(Span::raw(" "));
-                        spans.push(Span::styled(
-                            entry.label,
-                            Style::default()
-                                .fg(if reviewed && !current { MUTED } else { TEXT })
-                                .add_modifier(if current {
-                                    Modifier::BOLD
-                                } else {
-                                    Modifier::empty()
-                                }),
-                        ));
-                        let comments = view
-                            .comments
-                            .iter()
-                            .filter(|comment| comment.path == file.path)
-                            .count();
-                        if comments > 0 {
-                            spans.push(Span::styled(
-                                format!("  {comments}"),
-                                Style::default().fg(super::COMMENT),
-                            ));
-                        }
-                        ListItem::new(Line::from(crop_spans(spans, self.scroll_x, viewport_width)))
-                            .style(if current && view.focused {
-                                Style::default().bg(SELECT_BG)
-                            } else if current {
-                                Style::default().bg(super::BG)
-                            } else {
-                                Style::default()
-                            })
-                    }
-                    Some(Target::Comment { file, comment }) => {
-                        let target = Target::Comment { file, comment };
-                        let selected = if view.focused {
-                            self.selection == Some(target)
-                        } else {
-                            file == view.current_file && view.active_comment == Some(comment)
-                        };
-                        ListItem::new(Line::from(crop_spans(
-                            vec![
-                                Span::raw(indent),
-                                Span::styled("  └ ", Style::default().fg(BORDER)),
-                                Span::styled(
-                                    entry.label,
-                                    Style::default()
-                                        .fg(if selected { TEXT } else { MUTED })
-                                        .add_modifier(if selected {
-                                            Modifier::BOLD
-                                        } else {
-                                            Modifier::empty()
-                                        }),
-                                ),
-                            ],
-                            self.scroll_x,
-                            viewport_width,
-                        )))
-                        .style(if selected && view.focused {
-                            Style::default().bg(SELECT_BG)
-                        } else if selected {
-                            Style::default().bg(super::COMMENT_BG)
-                        } else {
-                            Style::default()
-                        })
-                    }
-                    None => ListItem::new(Line::from(crop_spans(
-                        vec![
-                            Span::raw(indent),
-                            Span::styled(entry.label, Style::default().fg(MUTED)),
-                        ],
-                        self.scroll_x,
-                        viewport_width,
-                    ))),
-                }
-            })
-            .collect::<Vec<_>>();
-        frame.render_widget(
-            List::new(items)
-                .block(Block::default().borders(Borders::RIGHT).border_style(
-                    Style::default().fg(if view.focused { super::BLUE } else { BORDER }),
-                ))
-                .style(Style::default().bg(SURFACE)),
-            list_area,
-        );
+        if let Some(path) = find_target(item.children(), target, parents) {
+            return Some(path);
+        }
+        parents.pop();
+    }
+    None
+}
+
+fn open_new_nodes(
+    items: &[TreeItem<'_, NodeId>],
+    state: &mut TreeState<NodeId>,
+    known_nodes: &mut HashSet<Vec<NodeId>>,
+    parents: &mut Vec<NodeId>,
+) {
+    for item in items {
+        parents.push(item.identifier().clone());
+        let is_new = known_nodes.insert(parents.clone());
+        if is_new && !item.children().is_empty() {
+            state.open(parents.clone());
+        }
+        open_new_nodes(item.children(), state, known_nodes, parents);
+        parents.pop();
     }
 }
 
@@ -471,9 +458,21 @@ impl FileTree {
 mod tests {
     use super::*;
     use crate::model::parse_unified_diff;
+    use ratatui::{Terminal, backend::TestBackend};
+
+    fn view<'a>(files: &'a [FileDiff], reviewed: &'a HashSet<usize>) -> View<'a> {
+        View {
+            files,
+            comments: &[],
+            reviewed_files: reviewed,
+            current_file: 0,
+            active_comment: None,
+            focused: true,
+        }
+    }
 
     #[test]
-    fn tree_owns_filtering_and_exposes_only_selectable_targets() {
+    fn filtering_selects_the_first_matching_file() {
         let files = parse_unified_diff(
             "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/docs/b.md b/docs/b.md\n--- a/docs/b.md\n+++ b/docs/b.md\n@@ -1 +1 @@\n-a\n+b\n",
         );
@@ -482,69 +481,97 @@ mod tests {
             filter: "sr".into(),
             ..FileTree::default()
         };
-        let view = View {
-            files: &files,
-            comments: &[],
-            reviewed_files: &reviewed,
-            current_file: 0,
-            active_comment: None,
-            focused: true,
-        };
-        assert_eq!(tree.targets(&view), vec![Target::File(0)]);
+        assert_eq!(tree.first_file(&view(&files, &reviewed)), Some(0));
         tree.filter = "docs".into();
-        assert_eq!(tree.first_file(&view), Some(1));
+        assert_eq!(tree.first_file(&view(&files, &reviewed)), Some(1));
     }
 
     #[test]
-    fn navigation_is_owned_by_the_tree_and_returns_a_selection_action() {
-        use crossterm::event::KeyModifiers;
+    fn widget_renders_nested_paths_without_manual_row_math() {
+        let files = parse_unified_diff(
+            "diff --git a/src/deep/a.rs b/src/deep/a.rs\n--- a/src/deep/a.rs\n+++ b/src/deep/a.rs\n@@ -1 +1 @@\n-a\n+b\n",
+        );
+        let reviewed = HashSet::new();
+        let mut tree = FileTree::default();
+        let mut terminal = Terminal::new(TestBackend::new(24, 8)).unwrap();
+        terminal
+            .draw(|frame| tree.draw(frame, frame.area(), &view(&files, &reviewed)))
+            .unwrap();
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("src/"));
+        assert!(rendered.contains("deep/"));
+        assert!(rendered.contains("a.rs"));
+    }
+
+    #[test]
+    fn navigation_follows_rendered_tree_order() {
         let files = parse_unified_diff(
             "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -1 +1 @@\n-a\n+b\n",
         );
         let reviewed = HashSet::new();
         let mut tree = FileTree::default();
-        let view = View {
-            files: &files,
-            comments: &[],
-            reviewed_files: &reviewed,
-            current_file: 0,
-            active_comment: None,
-            focused: true,
-        };
-        let target = tree.navigate(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &view);
+        let mut terminal = Terminal::new(TestBackend::new(24, 8)).unwrap();
+        terminal
+            .draw(|frame| tree.draw(frame, frame.area(), &view(&files, &reviewed)))
+            .unwrap();
+        let target = tree.navigate(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
         assert_eq!(target, Some(Target::File(1)));
-        assert_eq!(tree.selection, target);
-        assert!(tree.follow_selection);
     }
 
     #[test]
-    fn review_queue_keeps_files_in_their_original_order() {
-        let files = parse_unified_diff(concat!(
-            "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\n",
-            "diff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -1 +1 @@\n-a\n+b\n",
-        ));
-        let reviewed = HashSet::from([0]);
-        let mut tree = FileTree::default();
-        let view = View {
-            files: &files,
-            comments: &[],
-            reviewed_files: &reviewed,
-            current_file: 1,
-            active_comment: None,
-            focused: true,
-        };
-
-        assert_eq!(tree.targets(&view), [Target::File(0), Target::File(1)]);
-
-        tree.filter = "a".into();
-        assert_eq!(tree.targets(&view), [Target::File(0)]);
-    }
-
-    #[test]
-    fn search_owns_draft_restore_and_acceptance() {
-        use crossterm::event::KeyModifiers;
+    fn mouse_selection_uses_the_rendered_row() {
         let files = parse_unified_diff(
-            "diff --git a/first b/first\n--- a/first\n+++ b/first\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/second b/second\n--- a/second\n+++ b/second\n@@ -1 +1 @@\n-a\n+b\n",
+            "diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/b b/b\n--- a/b\n+++ b/b\n@@ -1 +1 @@\n-a\n+b\n",
+        );
+        let reviewed = HashSet::new();
+        let mut tree = FileTree::default();
+        let mut terminal = Terminal::new(TestBackend::new(24, 8)).unwrap();
+        terminal
+            .draw(|frame| tree.draw(frame, frame.area(), &view(&files, &reviewed)))
+            .unwrap();
+
+        assert_eq!(tree.click(1, 3), Some(Target::File(1)));
+    }
+
+    #[test]
+    fn collapsed_folders_stay_collapsed_after_rendering() {
+        let files = parse_unified_diff(
+            "diff --git a/src/deep/a.rs b/src/deep/a.rs\n--- a/src/deep/a.rs\n+++ b/src/deep/a.rs\n@@ -1 +1 @@\n-a\n+b\n",
+        );
+        let reviewed = HashSet::new();
+        let mut tree = FileTree::default();
+        let mut terminal = Terminal::new(TestBackend::new(24, 8)).unwrap();
+        terminal
+            .draw(|frame| tree.draw(frame, frame.area(), &view(&files, &reviewed)))
+            .unwrap();
+
+        tree.navigate(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        tree.navigate(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE));
+        terminal
+            .draw(|frame| tree.draw(frame, frame.area(), &view(&files, &reviewed)))
+            .unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("deep/"));
+        assert!(!rendered.contains("a.rs"));
+    }
+
+    #[test]
+    fn search_restores_the_previous_filter_on_escape() {
+        let files = parse_unified_diff(
+            "diff --git a/first b/first\n--- a/first\n+++ b/first\n@@ -1 +1 @@\n-a\n+b\n",
         );
         let reviewed = HashSet::new();
         let mut tree = FileTree {
@@ -552,17 +579,15 @@ mod tests {
             ..FileTree::default()
         };
         tree.begin_search();
-        let view = View {
-            files: &files,
-            comments: &[],
-            reviewed_files: &reviewed,
-            current_file: 0,
-            active_comment: None,
-            focused: true,
-        };
-        tree.search(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE), &view);
+        tree.search(
+            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
+            &view(&files, &reviewed),
+        );
         assert_eq!(
-            tree.search(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), &view),
+            tree.search(
+                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+                &view(&files, &reviewed),
+            ),
             SearchAction::Cancel
         );
         assert_eq!(tree.filter, "first");

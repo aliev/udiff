@@ -52,7 +52,7 @@ impl Help {
             help_line("", "Ctrl+U / Ctrl+D", "half-page up / down"),
             help_line("", "gg / G", "start / end"),
             help_line("", "{line}gg", "jump to line"),
-            help_line("", "h l / ← →", "scroll explorer horizontally"),
+            help_line("", "h l / ← →", "close / open tree node"),
             help_line("", "{ / }", "previous / next revision"),
             Line::default(),
             help_line("REVIEW", "c", "select review lines"),

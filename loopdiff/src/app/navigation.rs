@@ -49,20 +49,11 @@ impl App {
         } else {
             Focus::Diff
         };
-        self.file_tree
-            .select(keep_sidebar_focus.then_some(target), keep_sidebar_focus);
+        self.file_tree.select(keep_sidebar_focus.then_some(target));
     }
 
     pub(super) fn navigate_file_tree(&mut self, key: KeyEvent) {
-        let view = FileTreeView {
-            files: &self.session.files,
-            comments: &self.session.comments,
-            reviewed_files: &self.session.reviewed_files,
-            current_file: self.diff_pane.file,
-            active_comment: self.active_comment_index(),
-            focused: true,
-        };
-        if let Some(target) = self.file_tree.navigate(key, &view) {
+        if let Some(target) = self.file_tree.navigate(key) {
             self.select_side_target(target, true);
         }
     }
@@ -75,7 +66,7 @@ impl App {
 
     pub(super) fn toggle_panel_focus(&mut self) {
         if self.focus == Focus::Files {
-            self.file_tree.select(None, false);
+            self.file_tree.select(None);
             self.focus = Focus::Diff;
             return;
         }
@@ -85,10 +76,9 @@ impl App {
                 file: self.diff_pane.file,
                 comment,
             });
-        self.file_tree.select(
-            Some(selected_comment.unwrap_or(SideTarget::File(self.diff_pane.file))),
-            true,
-        );
+        self.file_tree.select(Some(
+            selected_comment.unwrap_or(SideTarget::File(self.diff_pane.file)),
+        ));
         self.focus = Focus::Files;
     }
 
