@@ -27,16 +27,17 @@ root is a virtual workspace shared with the secondary `uwatch` package.
 ## Read the code in this order
 
 1. `udiff/src/main.rs` chooses stdin or watch mode.
-2. `udiff/src/input.rs` turns input into unified-diff text or watch events.
-3. `udiff/src/model.rs` parses that text into files and lines.
-4. `udiff/src/comment.rs` defines comments, suggestions, and clipboard output.
-5. `udiff/src/app.rs` shows all application state in one place.
-6. `udiff/src/app/controller.rs` routes keys and mouse events.
-7. Follow one route into `review.rs`, `navigation.rs`, or `revisions.rs`.
-8. Read `diff_pane.rs` for cursor/selection behavior and `diff_view.rs` for its
+2. `udiff/src/theme.rs` resolves the palette every other module draws with.
+3. `udiff/src/input.rs` turns input into unified-diff text or watch events.
+4. `udiff/src/model.rs` parses that text into files and lines.
+5. `udiff/src/comment.rs` defines comments, suggestions, and clipboard output.
+6. `udiff/src/app.rs` shows all application state in one place.
+7. `udiff/src/app/controller.rs` routes keys and mouse events.
+8. Follow one route into `review.rs`, `navigation.rs`, or `revisions.rs`.
+9. Read `diff_pane.rs` for cursor/selection behavior and `diff_view.rs` for its
    rendering.
-9. `udiff/src/terminal.rs` owns raw mode, the event loop, clipboard access, and
-   `$EDITOR`.
+10. `udiff/src/terminal.rs` owns raw mode, the event loop, clipboard access, and
+    `$EDITOR`.
 
 You do not need to understand rendering before changing review behavior.
 
@@ -45,6 +46,7 @@ You do not need to understand rendering before changing review behavior.
 | Change | Start here |
 |---|---|
 | Unified-diff parsing or line numbers | `udiff/src/model.rs` |
+| Colours, appearance modes, `NO_COLOR` | `udiff/src/theme.rs` |
 | Syntax highlighting | `udiff/src/highlight.rs` |
 | Comment/suggestion data or copied prompt format | `udiff/src/comment.rs` |
 | Create, edit, delete, or export review items | `udiff/src/app/review.rs` |

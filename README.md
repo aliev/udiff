@@ -120,6 +120,24 @@ Tools such as `delta` are useful for viewing diffs directly, but their output
 contains terminal styling intended for humans. Feed the original uncolored
 unified diff—not `delta` output—into μdiff.
 
+## Appearance
+
+μdiff picks one of three appearances at startup:
+
+| Variable | Effect |
+|---|---|
+| `NO_COLOR` | Any non-empty value turns off colour. Emphasis falls back to bold, underline, and reverse video. |
+| `UDIFF_THEME` | `dark`, `light`, or `mono`, overriding everything but `NO_COLOR`. An unrecognised value is ignored. |
+| `COLORFGBG` | Consulted only when neither of the above applies. Background colour `7` or `15` selects the light palette. |
+
+Without any of them μdiff uses its dark palette. `COLORFGBG` is set by urxvt
+and konsole among others, but not by iTerm2, Terminal.app, Alacritty, or kitty,
+so on those terminals set `UDIFF_THEME` yourself:
+
+```bash
+export UDIFF_THEME=light
+```
+
 ## UI
 
 - GitHub-style folder/file sidebar with fuzzy filtering and a review meter.
