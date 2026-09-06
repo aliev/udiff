@@ -12,8 +12,10 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 /// Marks a row that continues the previous one after soft wrapping.
 pub(super) const WRAP_MARKER: &str = "\u{21aa}";
 
-/// Marks a row that continues past the right edge because wrapping is off.
-pub(super) const CUT_MARKER: &str = "\u{203a}";
+/// Vim's `listchars` pair: the line goes on past the right edge, and past the
+/// left one once the view has scrolled.
+pub(super) const EXTENDS_MARKER: &str = "\u{bb}";
+pub(super) const PRECEDES_MARKER: &str = "\u{ab}";
 
 /// `1 comment` / `2 comments`, so counters never read `1 comments`.
 pub(super) fn plural(count: usize, singular: &str) -> String {
@@ -215,25 +217,34 @@ pub(super) fn crop_code_line(
         .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
         .sum::<usize>();
 
+    // Each marker costs the column it sits in, so the code gets what is left.
+    let precedes = offset > 0;
+    let extends = full > offset + available;
+    let marker = |glyph: &'static str| {
+        Span::styled(glyph, Style::default().fg(theme().muted).bg(background))
+    };
+
     let mut row = prefix;
-    let cut = full > offset + available;
-    let visible = available.saturating_sub(usize::from(cut));
-    row.extend(crop_spans(code, offset, visible));
+    if precedes {
+        row.push(marker(PRECEDES_MARKER));
+    }
+    let visible = available
+        .saturating_sub(usize::from(precedes))
+        .saturating_sub(usize::from(extends));
+    row.extend(crop_spans(code, offset + usize::from(precedes), visible));
     let rendered = row
         .iter()
         .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
         .sum::<usize>();
-    if rendered < width.saturating_sub(usize::from(cut)) {
+    let filled = width.saturating_sub(usize::from(extends));
+    if rendered < filled {
         row.push(Span::styled(
-            " ".repeat(width - usize::from(cut) - rendered),
+            " ".repeat(filled - rendered),
             Style::default().bg(background),
         ));
     }
-    if cut {
-        row.push(Span::styled(
-            CUT_MARKER,
-            Style::default().fg(theme().muted).bg(background),
-        ));
+    if extends {
+        row.push(marker(EXTENDS_MARKER));
     }
     Line::from(row)
 }

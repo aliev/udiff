@@ -7,10 +7,13 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ### Added
 
-- `w` stops long lines from folding and cuts them at the right edge instead,
-  marking the cut with `›`. The view then follows the cursor sideways, so
-  walking off the edge scrolls rather than stopping. Hunk headers stay put:
-  they label the code rather than being code, and are shorter than it.
+- `w` stops long lines from folding and cuts them at the right edge instead.
+  The view then follows the cursor sideways, so walking off the edge scrolls
+  rather than stopping, and vim's `»` and `«` mark the parts hanging off each
+  side. Hunk headers stay put: they label the code rather than being code, and
+  are shorter than it.
+- `^` and `$` move to the first non-blank character and to the end of the
+  line.
 - `b` hides and shows the file explorer. A `▸` in the file bar marks where it
   folded away, and `-` or `Tab` brings it back. The state lasts for the session
   only — μdiff keeps no settings.

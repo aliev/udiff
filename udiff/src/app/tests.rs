@@ -1727,7 +1727,7 @@ fn turning_wrapping_off_cuts_the_line_and_says_so() {
         "the tail is off-screen"
     );
     assert!(
-        cut.iter().any(|row| row.contains('›')),
+        cut.iter().any(|row| row.contains('»')),
         "and the cut is marked rather than looking like the end of the line"
     );
 }
@@ -1772,4 +1772,20 @@ fn walking_right_past_the_edge_scrolls_sideways() {
     // Wrapping again puts everything back on the left.
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
     assert_eq!(app.diff_pane.h_scroll, 0);
+}
+
+#[test]
+fn caret_and_dollar_move_along_the_line_like_vim() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+    let x = 1;\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+
+    app.key(KeyEvent::new(KeyCode::Char('$'), KeyModifiers::NONE));
+    assert_eq!(
+        app.diff_pane.visual_col,
+        "    let x = 1;".chars().count() - 1
+    );
+
+    // Not column zero: the first character that is actually there.
+    app.key(KeyEvent::new(KeyCode::Char('^'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.visual_col, 4);
 }

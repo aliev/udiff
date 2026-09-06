@@ -256,6 +256,22 @@ impl DiffPane {
                     self.h_scroll = 0;
                 }
             }
+            // Vim's own line motions: `^` is the first non-blank, which on
+            // indented code is the character you actually want.
+            KeyCode::Char('^') if focused => {
+                let text = &self.active_lines(files)[self.cursor].text;
+                self.visual_col = text
+                    .chars()
+                    .position(|character| !character.is_whitespace())
+                    .unwrap_or(0);
+            }
+            KeyCode::Char('$') if focused => {
+                self.visual_col = self.active_lines(files)[self.cursor]
+                    .text
+                    .chars()
+                    .count()
+                    .saturating_sub(1);
+            }
             KeyCode::Char('h') | KeyCode::Left if focused => {
                 self.visual_col = self.visual_col.saturating_sub(1)
             }
