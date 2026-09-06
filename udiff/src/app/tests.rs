@@ -2036,3 +2036,99 @@ fn swapping_the_two_modes_says_why() {
         "and turning the other on: {status:?}"
     );
 }
+
+#[test]
+fn the_editor_is_visible_side_by_side() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    for character in "typed blind".chars() {
+        app.key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+    let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let rows = screen(&terminal, 120, 12);
+
+    assert!(
+        rows.iter().any(|row| row.contains("NEW COMMENT")),
+        "the form is drawn at all: {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|row| row.contains("typed blind")),
+        "and shows what is being typed into it"
+    );
+}
+
+#[test]
+fn a_card_sits_under_the_pane_it_belongs_to() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let comment = Comment {
+        id: "t-001".into(),
+        path: "a.rs".into(),
+        excerpt: "+new".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(1),
+        new_end: Some(1),
+        anchor_old: None,
+        anchor_new: Some(1),
+        body: CommentBody::Text("on the right".into()),
+    };
+    let mut app = App::new(parse_unified_diff(diff), vec![comment]);
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let rows = screen(&terminal, 120, 12);
+
+    assert!(
+        rows.iter().any(|row| row.contains("on the right")),
+        "the comment text is drawn"
+    );
+    // Half a pane is narrow, so the text may wrap onto a second card line;
+    // the heading is what marks where the card starts.
+    let card = rows
+        .iter()
+        .find(|row| row.contains("Comment #1"))
+        .expect("the card is drawn");
+    let paired = rows
+        .iter()
+        .find(|row| row.contains("old") && row.contains("new"))
+        .expect("the pair is drawn");
+    let divider = paired[paired.find("old").unwrap()..]
+        .find('│')
+        .map(|offset| paired.find("old").unwrap() + offset)
+        .expect("the panes are divided");
+    assert!(
+        card.find("Comment #1").unwrap() > divider,
+        "a note on a right-hand line belongs under the right pane: {card:?}"
+    );
+}
+
+#[test]
+fn scrolling_side_by_side_counts_rows_not_lines() {
+    // Six removals replaced by six additions make twelve lines but six rows;
+    // treating one as the other walks past the cursor.
+    let mut diff =
+        String::from("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,6 +1,6 @@\n");
+    for index in 0..6 {
+        diff.push_str(&format!("-old{index}\n"));
+    }
+    for index in 0..6 {
+        diff.push_str(&format!("+new{index}\n"));
+    }
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    // Walk to the last row, on a screen too short to hold them all.
+    for _ in 0..10 {
+        app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    }
+    let mut terminal = Terminal::new(TestBackend::new(120, 6)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let rows = screen(&terminal, 120, 6);
+    assert!(
+        rows.iter().any(|row| row.contains("new5")),
+        "the row the cursor is on is on screen: {rows:?}"
+    );
+}

@@ -365,6 +365,52 @@ impl Renderer<'_> {
         Line::from(spans)
     }
 
+    /// What the editor card calls itself. Both views show the same thing.
+    fn editor_title(&self) -> String {
+        let kind = if self.editor.mode == EditorMode::Suggestion {
+            "SUGGESTION"
+        } else {
+            "COMMENT"
+        };
+        if let Some(key) = &self.editor.editing_key {
+            let location = self
+                .session
+                .comments
+                .iter()
+                .find(|comment| &comment.id == key)
+                .map(|comment| comment.short_location())
+                .unwrap_or_else(|| "selection".into());
+            format!("EDIT {kind} · {location}")
+        } else {
+            let (start, end) = self.pane.selected_bounds();
+            let lines = end - start + 1;
+            format!(
+                "NEW {kind} · {lines} line{} selected",
+                if lines == 1 { "" } else { "s" }
+            )
+        }
+    }
+
+    /// Indents a full-width card so it sits under the pane it belongs to.
+    /// A note on a right-hand line drawn from the far left, under an empty
+    /// left pane, reads as belonging to nothing.
+    fn under_side(&self, card: Vec<Line<'static>>, side: Side, width: usize) -> Vec<Line<'static>> {
+        let left_width = width.saturating_sub(1) / 2;
+        if side == Side::Left {
+            return card;
+        }
+        card.into_iter()
+            .map(|line| {
+                let mut spans = vec![Span::styled(
+                    " ".repeat(left_width + 1),
+                    Style::default().bg(theme().bg),
+                )];
+                spans.extend(line.spans);
+                Line::from(spans)
+            })
+            .collect()
+    }
+
     fn draw_diff(&mut self, f: &mut Frame, a: Rect) {
         let height = a.height as usize;
         self.ensure_visible(height);
@@ -430,6 +476,26 @@ impl Renderer<'_> {
             // Row is Copy and there is one per line, so the copy buys a
             // shorter borrow of the pane for the cost of a small vector.
             let rows = self.pane.rows.clone();
+            // `scroll` counts rows here, not lines: pairing merges a run of
+            // removals with the additions that replaced it, so the two spaces
+            // drift apart as soon as a file holds one.
+            let cursor_row = rows
+                .iter()
+                .position(|row| row.holds(self.pane.cursor))
+                .unwrap_or(0);
+            let editor_row = self
+                .editor
+                .anchor
+                .and_then(|anchor| rows.iter().position(|row| row.holds(anchor)));
+            let focus_row = if editor_active {
+                editor_row.unwrap_or(cursor_row)
+            } else {
+                cursor_row
+            };
+            self.pane.scroll = self.pane.scroll.min(focus_row);
+            if focus_row >= self.pane.scroll + height.saturating_sub(1) {
+                self.pane.scroll = focus_row + 2 - height.max(2);
+            }
             for row in rows.iter().skip(self.pane.scroll) {
                 if lines.len() >= height {
                     break;
@@ -447,6 +513,25 @@ impl Renderer<'_> {
                     lines.push(self.split_row(*row, a.width as usize));
                 }
                 map.push(anchor);
+                let card_width = a.width as usize / 2;
+                if editor_active
+                    && let Some(open) = self.editor.anchor
+                    && row.holds(open)
+                {
+                    let side = if row.right == Some(open) && row.left != Some(open) {
+                        Side::Right
+                    } else {
+                        Side::Left
+                    };
+                    let mut card = Vec::new();
+                    let mut ignored = Vec::new();
+                    let title = self.editor_title();
+                    self.append_editor(&mut card, &mut ignored, &title, card_width);
+                    for line in self.under_side(card, side, a.width as usize) {
+                        lines.push(line);
+                        map.push(None);
+                    }
+                }
                 for (number, comment) in self
                     .session
                     .comments
@@ -459,8 +544,14 @@ impl Renderer<'_> {
                         anchor_position(&file, comment).is_some_and(|line| row.holds(line))
                     })
                 {
-                    for comment_line in inline_comment_lines(comment, number + 1, a.width as usize)
-                    {
+                    let line = anchor_position(&file, comment);
+                    let side = if row.right == line && row.left != line {
+                        Side::Right
+                    } else {
+                        Side::Left
+                    };
+                    let card = inline_comment_lines(comment, number + 1, card_width);
+                    for comment_line in self.under_side(card, side, a.width as usize) {
                         lines.push(comment_line);
                         map.push(None);
                     }
@@ -488,28 +579,7 @@ impl Renderer<'_> {
             }
             let editor_here = Some(p) == self.editor.anchor && self.focus == Focus::Editor;
             if editor_here {
-                let kind = if self.editor.mode == EditorMode::Suggestion {
-                    "SUGGESTION"
-                } else {
-                    "COMMENT"
-                };
-                let title = if let Some(key) = &self.editor.editing_key {
-                    let location = self
-                        .session
-                        .comments
-                        .iter()
-                        .find(|comment| &comment.id == key)
-                        .map(|comment| comment.short_location())
-                        .unwrap_or_else(|| "selection".into());
-                    format!("EDIT {kind} · {location}")
-                } else {
-                    let (start, end) = self.pane.selected_bounds();
-                    let lines = end - start + 1;
-                    format!(
-                        "NEW {kind} · {lines} line{} selected",
-                        if lines == 1 { "" } else { "s" }
-                    )
-                };
+                let title = self.editor_title();
                 self.append_editor(&mut lines, &mut map, &title, a.width as usize);
             }
             for (number, n) in self
