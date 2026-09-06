@@ -18,6 +18,7 @@ use terminal::TerminalRuntime;
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum InputMode {
     Static,
+    Version,
     #[cfg(feature = "watch")]
     Watch(PathBuf),
 }
@@ -27,6 +28,7 @@ impl InputMode {
         let arguments = arguments.into_iter().collect::<Vec<_>>();
         match arguments.as_slice() {
             [] => Ok(Self::Static),
+            [flag] if flag == "--version" || flag == "-V" => Ok(Self::Version),
             #[cfg(feature = "watch")]
             [flag, root] if flag == "--watch" => Ok(Self::Watch(root.into())),
             #[cfg(feature = "watch")]
@@ -52,11 +54,18 @@ fn main() {
 }
 
 fn run() -> Result<i32> {
+    let mode = InputMode::parse(std::env::args().skip(1))?;
+    if let InputMode::Version = mode {
+        // Before the palette: reporting a version has nothing to draw.
+        println!("udiff {}", env!("CARGO_PKG_VERSION"));
+        return Ok(0);
+    }
     theme::init();
-    match InputMode::parse(std::env::args().skip(1))? {
+    match mode {
         #[cfg(feature = "watch")]
         InputMode::Watch(root) => view_watch(root),
         InputMode::Static => view_stdin(),
+        InputMode::Version => unreachable!("handled above"),
     }
 }
 
@@ -104,6 +113,19 @@ mod tests {
     fn input_mode_accepts_only_the_documented_invocations() {
         assert_eq!(InputMode::parse(Vec::new()).unwrap(), InputMode::Static);
         assert!(InputMode::parse(["--unknown".to_owned()]).is_err());
+    }
+
+    #[test]
+    fn a_released_binary_can_say_which_one_it_is() {
+        for flag in ["--version", "-V"] {
+            assert_eq!(
+                InputMode::parse([flag.to_owned()]).unwrap(),
+                InputMode::Version,
+                "{flag}"
+            );
+        }
+        // Only on its own: a diff is still the thing being asked for.
+        assert!(InputMode::parse(["--version".to_owned(), "extra".to_owned()]).is_err());
     }
 
     #[cfg(feature = "watch")]

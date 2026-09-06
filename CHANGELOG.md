@@ -5,7 +5,17 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
+### Added
+
+- `udiff --version` (and `-V`) reports the version, which a released binary
+  previously could not be asked for at all.
+
 ### Fixed
+
+- The keyboard help named `Shift+Enter` for inserting a newline, which the
+  terminal cannot deliver unless the application negotiates an extended
+  keyboard protocol, which μdiff does not. It now names `Ctrl+J`, the key that
+  has always worked.
 
 - The mouse no longer reaches the diff while the review editor or the file
   filter has focus. Scrolling used to walk the diff cursor and, with a review

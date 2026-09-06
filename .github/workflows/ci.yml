@@ -24,6 +24,17 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
 
+  dist:
+    name: Release plan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      # Pinned to dist-workspace.toml: a mismatch is exactly what this job is
+      # here to catch, and `dist plan` refuses to run on the wrong version.
+      - run: cargo install cargo-dist --locked --version 0.32.0
+      - run: dist plan
+
   build:
     name: Build (${{ matrix.os }})
     strategy:
