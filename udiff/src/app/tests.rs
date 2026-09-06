@@ -1508,3 +1508,28 @@ fn nothing_is_left_to_the_terminals_own_foreground() {
         "cells drawn in the terminal's own foreground: {stranded:?}"
     );
 }
+
+#[test]
+fn the_file_bar_is_only_as_tall_as_its_text() {
+    // Painting the panel colour across the rule as well leaves a tinted strip
+    // under the path, so the text sits in the top half of the bar rather than
+    // filling it.
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let width = 100;
+    let mut terminal = Terminal::new(TestBackend::new(width, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let buffer = terminal.backend().buffer();
+    let inside_diff = super::view::sidebar_width(width, false) + 20;
+
+    assert_eq!(
+        buffer.cell((inside_diff, 0)).unwrap().bg,
+        theme().surface,
+        "the bar row carries the panel colour"
+    );
+    assert_eq!(
+        buffer.cell((inside_diff, 1)).unwrap().bg,
+        theme().bg,
+        "the rule row belongs to the canvas, not to the bar"
+    );
+}
