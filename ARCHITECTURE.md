@@ -21,18 +21,22 @@ returns an `Effect` when the outside world must do something. `terminal.rs`
 performs those effects. This keeps parsing, review behavior, and rendering easy
 to test without a real terminal.
 
+The μdiff source tree and package manifest live under `udiff/`. The repository
+root is a virtual workspace shared with the secondary `uwatch` package.
+
 ## Read the code in this order
 
-1. `main.rs` chooses stdin or watch mode.
-2. `input.rs` turns input into unified-diff text or watch events.
-3. `model.rs` parses that text into files and lines.
-4. `comment.rs` defines comments, suggestions, and clipboard output.
-5. `app.rs` shows all application state in one place.
-6. `app/controller.rs` routes keys and mouse events.
+1. `udiff/src/main.rs` chooses stdin or watch mode.
+2. `udiff/src/input.rs` turns input into unified-diff text or watch events.
+3. `udiff/src/model.rs` parses that text into files and lines.
+4. `udiff/src/comment.rs` defines comments, suggestions, and clipboard output.
+5. `udiff/src/app.rs` shows all application state in one place.
+6. `udiff/src/app/controller.rs` routes keys and mouse events.
 7. Follow one route into `review.rs`, `navigation.rs`, or `revisions.rs`.
 8. Read `diff_pane.rs` for cursor/selection behavior and `diff_view.rs` for its
    rendering.
-9. `terminal.rs` owns raw mode, the event loop, clipboard access, and `$EDITOR`.
+9. `udiff/src/terminal.rs` owns raw mode, the event loop, clipboard access, and
+   `$EDITOR`.
 
 You do not need to understand rendering before changing review behavior.
 
@@ -40,17 +44,17 @@ You do not need to understand rendering before changing review behavior.
 
 | Change | Start here |
 |---|---|
-| Unified-diff parsing or line numbers | `model.rs` |
-| Syntax highlighting | `highlight.rs` |
-| Comment/suggestion data or copied prompt format | `comment.rs` |
-| Create, edit, delete, or export review items | `app/review.rs` |
-| Cursor, range, visual selection, or yank | `app/diff_pane.rs` |
-| File tree, focus, or search | `app/navigation.rs`, `app/file_tree.rs` |
-| Watch revision history | `app/revisions.rs` |
-| Key or mouse routing | `app/controller.rs` |
-| Screen layout | `app/view.rs` |
-| Diff appearance | `app/diff_view.rs`, `app/render.rs` |
-| OS/terminal/clipboard/editor behavior | `terminal.rs` |
+| Unified-diff parsing or line numbers | `udiff/src/model.rs` |
+| Syntax highlighting | `udiff/src/highlight.rs` |
+| Comment/suggestion data or copied prompt format | `udiff/src/comment.rs` |
+| Create, edit, delete, or export review items | `udiff/src/app/review.rs` |
+| Cursor, range, visual selection, or yank | `udiff/src/app/diff_pane.rs` |
+| File tree, focus, or search | `udiff/src/app/navigation.rs`, `udiff/src/app/file_tree.rs` |
+| Watch revision history | `udiff/src/app/revisions.rs` |
+| Key or mouse routing | `udiff/src/app/controller.rs` |
+| Screen layout | `udiff/src/app/view.rs` |
+| Diff appearance | `udiff/src/app/diff_view.rs`, `udiff/src/app/render.rs` |
+| OS/terminal/clipboard/editor behavior | `udiff/src/terminal.rs` |
 
 ## State ownership
 
@@ -67,7 +71,8 @@ review model. Add one only if a concrete feature cannot stay simple without it.
 
 For a new behavior, add one focused test at its owner, implement it there, and
 only then add the key route or external effect. Cross-component behavior belongs
-in `app/tests.rs`; local parsing and state rules belong next to their module.
+in `udiff/src/app/tests.rs`; local parsing and state rules belong next to their
+module.
 
 Run from the workspace root:
 

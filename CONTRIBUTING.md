@@ -8,7 +8,7 @@ Thanks for helping improve μdiff.
 
 ```bash
 cargo build --workspace
-git diff | cargo run --release
+git diff | cargo run -p udiff --release
 ```
 
 Before opening a pull request, run the same checks as CI:

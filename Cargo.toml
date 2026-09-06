@@ -1,36 +1,10 @@
-[package]
-name = "udiff"
-version = "0.4.0"
+[workspace]
+members = ["udiff", "uwatch"]
+resolver = "2"
+
+[workspace.package]
 edition = "2024"
 rust-version = "1.88"
-authors = ["Ali Aliyev <ali@aliev.me>"]
-description = "A focused terminal UI for code review"
-license = "MIT"
-readme = "README.md"
-repository = "https://github.com/aliev/udiff"
-homepage = "https://github.com/aliev/udiff"
-keywords = ["code-review", "diff", "patch", "terminal", "tui"]
-categories = ["command-line-utilities", "development-tools"]
-exclude = ["/.github/", "/AGENTS.md", "/docs/assets/"]
-
-[features]
-default = ["watch"]
-watch = ["dep:uwatch"]
-
-[dependencies]
-anyhow = "1"
-base64 = "0.23"
-crossterm = { version = "0.29", features = ["use-dev-tty"] }
-uwatch = { path = "uwatch", optional = true }
-ratatui = "0.30"
-regex = "1"
-syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
-tui-tree-widget = "0.24"
-unicode-width = "0.2"
-
-[workspace]
-members = ["uwatch"]
-resolver = "2"
 
 [profile.release]
 lto = "thin"

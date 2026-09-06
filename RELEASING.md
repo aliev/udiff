@@ -17,7 +17,7 @@ artifacts.
 
 ## Release
 
-1. Update the version in `Cargo.toml` and run `cargo update -w` if needed.
+1. Update the version in `udiff/Cargo.toml` and run `cargo update -w` if needed.
 2. Move the relevant entries in `CHANGELOG.md` from Unreleased to the new
    version and date.
 3. Run the full verification suite:

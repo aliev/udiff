@@ -35,14 +35,14 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/aliev/udiff/releas
 μdiff requires Rust 1.88 or newer:
 
 ```bash
-cargo install --path . --locked
+cargo install --path udiff --locked
 ```
 
 The default `watch` feature adds the optional Uwatch integration. To build
 μdiff as a standalone stdin diff viewer without the Uwatch dependency:
 
 ```bash
-cargo install --path . --locked --no-default-features
+cargo install --path udiff --locked --no-default-features
 ```
 
 In that build, passing `--watch` reports that the feature is unavailable.
@@ -137,9 +137,10 @@ OSC 52 clipboard access.
 
 ## Workspace
 
-μdiff is the root package. [`uwatch/`](uwatch/README.md) is an
+μdiff lives in [`udiff/`](udiff/), while [`uwatch/`](uwatch/README.md) is an
 independently useful secondary package that provides the optional in-memory
-watcher integration. Validate both packages with `cargo test --workspace`.
+watcher integration. The repository root is a virtual Cargo workspace, so
+`cargo build` and `cargo test` operate on both packages together.
 
 ## Keys
 
