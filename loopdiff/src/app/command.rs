@@ -6,6 +6,7 @@ pub struct EditorTarget {
     pub path: String,
 }
 
+#[cfg_attr(not(feature = "watch"), allow(dead_code))]
 pub enum Command {
     Key(KeyEvent),
     Mouse(MouseEvent),

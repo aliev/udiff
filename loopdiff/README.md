@@ -38,6 +38,15 @@ Loopdiff requires Rust 1.88 or newer:
 cargo install --path . --locked
 ```
 
+The default `watch` feature adds the optional Diffwatch integration. To build
+Loopdiff as a standalone stdin diff viewer without the Diffwatch dependency:
+
+```bash
+cargo install --path . --locked --no-default-features
+```
+
+In that build, passing `--watch` reports that the feature is unavailable.
+
 ## Usage
 
 Loopdiff accepts a unified diff on standard input:
@@ -55,6 +64,8 @@ Comments, suggestions, and reviewed-file state are intentionally local to the
 current run.
 
 ### Watch mode
+
+Watch mode is provided by the default `watch` Cargo feature.
 
 Open Loopdiff immediately and review revisions as files change:
 

@@ -26,6 +26,7 @@ impl RevisionState {
 }
 
 impl App {
+    #[cfg_attr(not(feature = "watch"), allow(dead_code))]
     pub fn new_watching(number: u64, files: Vec<FileDiff>) -> Self {
         let mut app = Self::new(files, Vec::new());
         app.revision_number = number;
@@ -33,6 +34,7 @@ impl App {
         app
     }
 
+    #[cfg_attr(not(feature = "watch"), allow(dead_code))]
     pub fn new_watching_context(files: Vec<FileDiff>) -> Self {
         let mut app = Self::new(files, Vec::new());
         app.revision_number = 0;

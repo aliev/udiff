@@ -1,4 +1,5 @@
 use crate::app::{App, BG, Command, EditorTarget, Effect, MUTED, TEXT};
+#[cfg(feature = "watch")]
 use crate::input::{WatchInputEvent, WatchSource};
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -33,14 +34,22 @@ enum EffectOutcome {
 
 impl TerminalRuntime {
     pub fn run(app: App) -> Result<Effect> {
-        Self::run_inner(Some(app), None)
+        Self::run_inner(
+            Some(app),
+            #[cfg(feature = "watch")]
+            None,
+        )
     }
 
+    #[cfg(feature = "watch")]
     pub fn run_watching(source: WatchSource, initial: Option<App>) -> Result<Effect> {
         Self::run_inner(initial, Some(source))
     }
 
-    fn run_inner(mut app: Option<App>, watch_source: Option<WatchSource>) -> Result<Effect> {
+    fn run_inner(
+        mut app: Option<App>,
+        #[cfg(feature = "watch")] watch_source: Option<WatchSource>,
+    ) -> Result<Effect> {
         enable_raw_mode().context("enable raw mode")?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -48,6 +57,7 @@ impl TerminalRuntime {
         let mut terminal = Terminal::new(backend)?;
         let result = (|| -> Result<Effect> {
             loop {
+                #[cfg(feature = "watch")]
                 if let Some(source) = &watch_source {
                     while let Ok(event) = source.try_recv() {
                         apply_watch_event(&mut app, event);
@@ -62,12 +72,11 @@ impl TerminalRuntime {
                         Event::Key(key) => {
                             let outcome = if let Some(app) = &mut app {
                                 let effect = app.update(Command::Key(key));
-                                handle_effect(
-                                    app,
-                                    &mut terminal,
-                                    effect,
-                                    watch_source.as_ref().map(WatchSource::root),
-                                )?
+                                #[cfg(feature = "watch")]
+                                let watch_root = watch_source.as_ref().map(WatchSource::root);
+                                #[cfg(not(feature = "watch"))]
+                                let watch_root: Option<&Path> = None;
+                                handle_effect(app, &mut terminal, effect, watch_root)?
                             } else if key.code == crossterm::event::KeyCode::Char('q') {
                                 EffectOutcome::Quit
                             } else {
@@ -110,6 +119,7 @@ fn apply_effect_outcome(app: &mut Option<App>, outcome: EffectOutcome) -> bool {
     }
 }
 
+#[cfg(feature = "watch")]
 fn apply_watch_event(app: &mut Option<App>, event: WatchInputEvent) {
     match event {
         WatchInputEvent::Batch { number, files } => match app {
@@ -281,6 +291,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "watch")]
     #[test]
     fn watch_mode_has_a_waiting_screen_before_the_first_batch() {
         let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
@@ -298,6 +309,7 @@ mod tests {
         assert!(rendered.contains("q quit"));
     }
 
+    #[cfg(feature = "watch")]
     #[test]
     fn resetting_watch_drops_batches_and_accepts_the_next_one() {
         let files =

@@ -16,6 +16,13 @@ cargo test --workspace
 Run an individual command with `cargo run -p diffwatch` or
 `cargo run -p loopdiff`.
 
+Loopdiff depends on Diffwatch only through its default `watch` feature. Its
+stdin-only mode can be built independently of Diffwatch:
+
+```sh
+cargo build -p loopdiff --no-default-features
+```
+
 For live interactive review, build the workspace and let Loopdiff watch the
 project directly:
 

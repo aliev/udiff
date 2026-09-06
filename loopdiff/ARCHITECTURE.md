@@ -4,7 +4,7 @@ Loopdiff is intentionally a small application, not a framework. Its design has
 three boundaries:
 
 ```text
-stdin / Diffwatch
+stdin / Diffwatch (`watch` feature)
        │
        ▼
  unified diff ──► model ──► App::update ──► component state
