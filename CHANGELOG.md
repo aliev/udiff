@@ -3,7 +3,7 @@
 All notable changes to μdiff are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.2] - 2026-09-06
 
 ### Added
 
@@ -55,6 +55,6 @@ All notable changes to μdiff are documented in this file. The project uses
   quiet-period batches and emits unified diffs.
 - Linux, macOS, and Windows CI builds.
 
-[Unreleased]: https://github.com/aliev/udiff/compare/v0.1.1...HEAD
+[0.1.2]: https://github.com/aliev/udiff/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/aliev/udiff/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/aliev/udiff/releases/tag/v0.1.0
