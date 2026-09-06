@@ -75,7 +75,7 @@ impl DiffPane {
             focus,
             sidebar_hidden: false,
         }
-        .append_editor(lines, map, title, width);
+        .append_editor(lines, map, title, width, EDITOR_PREFIX_WIDTH);
     }
 }
 
@@ -396,16 +396,30 @@ impl Renderer<'_> {
     /// left pane, reads as belonging to nothing.
     fn under_side(&self, card: Vec<Line<'static>>, side: Side, width: usize) -> Vec<Line<'static>> {
         let left_width = width.saturating_sub(1) / 2;
-        if side == Side::Left {
-            return card;
-        }
+        let right_width = width.saturating_sub(1 + left_width);
+        let blank =
+            |columns: usize| Span::styled(" ".repeat(columns), Style::default().bg(theme().bg));
         card.into_iter()
             .map(|line| {
-                let mut spans = vec![Span::styled(
-                    " ".repeat(left_width + 1),
-                    Style::default().bg(theme().bg),
-                )];
-                spans.extend(line.spans);
+                // The divider runs the height of the pane. Breaking it wherever
+                // a card sits would leave the two columns looking unrelated.
+                let divider = Span::styled(
+                    "\u{2502}",
+                    Style::default().fg(theme().border).bg(theme().bg),
+                );
+                let mut spans = Vec::new();
+                match side {
+                    Side::Left => {
+                        spans.extend(line.spans);
+                        spans.push(divider);
+                        spans.push(blank(right_width));
+                    }
+                    Side::Right => {
+                        spans.push(blank(left_width));
+                        spans.push(divider);
+                        spans.extend(line.spans);
+                    }
+                }
                 Line::from(spans)
             })
             .collect()
@@ -513,7 +527,7 @@ impl Renderer<'_> {
                     lines.push(self.split_row(*row, a.width as usize));
                 }
                 map.push(anchor);
-                let card_width = a.width as usize / 2;
+                let card_width = (a.width as usize).saturating_sub(1) / 2;
                 if editor_active
                     && let Some(open) = self.editor.anchor
                     && row.holds(open)
@@ -526,7 +540,13 @@ impl Renderer<'_> {
                     let mut card = Vec::new();
                     let mut ignored = Vec::new();
                     let title = self.editor_title();
-                    self.append_editor(&mut card, &mut ignored, &title, card_width);
+                    self.append_editor(
+                        &mut card,
+                        &mut ignored,
+                        &title,
+                        card_width,
+                        SPLIT_PREFIX_WIDTH,
+                    );
                     for line in self.under_side(card, side, a.width as usize) {
                         lines.push(line);
                         map.push(None);
@@ -550,7 +570,8 @@ impl Renderer<'_> {
                     } else {
                         Side::Left
                     };
-                    let card = inline_comment_lines(comment, number + 1, card_width);
+                    let card =
+                        inline_comment_lines(comment, number + 1, card_width, SPLIT_PREFIX_WIDTH);
                     for comment_line in self.under_side(card, side, a.width as usize) {
                         lines.push(comment_line);
                         map.push(None);
@@ -580,7 +601,13 @@ impl Renderer<'_> {
             let editor_here = Some(p) == self.editor.anchor && self.focus == Focus::Editor;
             if editor_here {
                 let title = self.editor_title();
-                self.append_editor(&mut lines, &mut map, &title, a.width as usize);
+                self.append_editor(
+                    &mut lines,
+                    &mut map,
+                    &title,
+                    a.width as usize,
+                    EDITOR_PREFIX_WIDTH,
+                );
             }
             for (number, n) in self
                 .session
@@ -590,7 +617,9 @@ impl Renderer<'_> {
                 .enumerate()
                 .filter(|(_, n)| anchor_position(&file, n) == Some(p))
             {
-                for comment_line in inline_comment_lines(n, number + 1, a.width as usize) {
+                for comment_line in
+                    inline_comment_lines(n, number + 1, a.width as usize, DIFF_PREFIX_WIDTH)
+                {
                     lines.push(comment_line);
                     map.push(None);
                 }
@@ -609,6 +638,7 @@ impl Renderer<'_> {
         map: &mut Vec<Option<usize>>,
         title: &str,
         width: usize,
+        gutter: usize,
     ) {
         lines.push(editor_card_line(
             vec![Span::styled(
@@ -616,10 +646,10 @@ impl Renderer<'_> {
                 Style::default().fg(theme().comment).bg(theme().comment_bg),
             )],
             width,
-            EDITOR_PREFIX_WIDTH,
+            gutter,
         ));
         map.push(None);
-        let visual_rows = editor_visual_rows(&self.editor.text, editor_text_width(width));
+        let visual_rows = editor_visual_rows(&self.editor.text, editor_text_width(width, gutter));
         let syntax = (self.editor.mode == EditorMode::Suggestion)
             .then(|| highlight_source(&self.current().path, &self.editor.text));
         let cursor_row = visual_rows
@@ -668,7 +698,7 @@ impl Renderer<'_> {
                 apply_block_cursor(&mut code_spans, 0, cursor_column, theme().comment_bg);
             }
             editor_spans.extend(code_spans);
-            lines.push(editor_card_line(editor_spans, width, EDITOR_PREFIX_WIDTH));
+            lines.push(editor_card_line(editor_spans, width, gutter));
             map.push(None);
         }
         lines.push(editor_card_line(
@@ -677,7 +707,7 @@ impl Renderer<'_> {
                 Style::default().fg(theme().muted).bg(theme().comment_bg),
             )],
             width,
-            EDITOR_PREFIX_WIDTH,
+            gutter,
         ));
         map.push(None);
     }
@@ -833,9 +863,10 @@ fn editor_aware_scroll(
         return 0;
     };
     let mut scroll = anchor;
-    let editor_rows = editor_visual_rows(&editor.text, editor_text_width(width))
-        .len()
-        .saturating_add(2);
+    let editor_rows =
+        editor_visual_rows(&editor.text, editor_text_width(width, EDITOR_PREFIX_WIDTH))
+            .len()
+            .saturating_add(2);
     let desired_rows_before = height.saturating_sub(editor_rows) / 2;
     while scroll > 0 {
         let candidate = scroll - 1;
@@ -876,8 +907,9 @@ fn rendered_rows_through(
         .enumerate()
         .filter_map(|(number, comment)| {
             anchor_position(file, comment).and_then(|anchor| {
-                (scroll <= anchor && anchor < target)
-                    .then(|| inline_comment_lines(comment, number + 1, width).len())
+                (scroll <= anchor && anchor < target).then(|| {
+                    inline_comment_lines(comment, number + 1, width, DIFF_PREFIX_WIDTH).len()
+                })
             })
         })
         .sum::<usize>();
@@ -902,10 +934,8 @@ fn rendered_rows_through(
         .saturating_add(sticky_rows)
 }
 
-fn editor_text_width(width: usize) -> usize {
-    width
-        .saturating_sub(EDITOR_PREFIX_WIDTH + EDITOR_TEXT_INSET)
-        .max(1)
+fn editor_text_width(width: usize, gutter: usize) -> usize {
+    width.saturating_sub(gutter + EDITOR_TEXT_INSET).max(1)
 }
 
 fn editor_card_line<'a>(mut card: Vec<Span<'a>>, width: usize, prefix_width: usize) -> Line<'a> {

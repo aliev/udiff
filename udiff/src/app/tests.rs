@@ -1022,7 +1022,7 @@ fn inline_comment_is_a_full_width_visual_card() {
         anchor_new: Some(4),
         body: CommentBody::Text("Please simplify\n```rust\nfix();\n```".into()),
     };
-    let lines = inline_comment_lines(&comment, 1, 60);
+    let lines = inline_comment_lines(&comment, 1, 60, 13);
     assert_eq!(lines.len(), 4);
     assert!(lines.iter().all(|line| line.width() == 60));
     assert_eq!(lines[0].spans[0].style.bg, Some(theme().bg));
@@ -1053,7 +1053,7 @@ fn inline_comments_wrap_words_and_long_tokens_to_the_viewport() {
             "This comment is deliberately long enough to wrap without disappearing.\n012345678901234567890123456789".into(),
         ),
     };
-    let lines = inline_comment_lines(&comment, 1, 42);
+    let lines = inline_comment_lines(&comment, 1, 42, 13);
 
     assert!(lines.len() >= 4);
     assert!(lines.iter().all(|line| line.width() == 42));
@@ -1083,7 +1083,7 @@ fn inline_suggestion_preserves_indentation_and_uses_a_distinct_card() {
         },
     };
 
-    let lines = inline_comment_lines(&suggestion, 1, 60);
+    let lines = inline_comment_lines(&suggestion, 1, 60, 13);
 
     assert!(lines.iter().all(|line| line.width() == 60));
     let rendered = lines
@@ -2131,4 +2131,25 @@ fn scrolling_side_by_side_counts_rows_not_lines() {
         rows.iter().any(|row| row.contains("new5")),
         "the row the cursor is on is on screen: {rows:?}"
     );
+}
+
+#[test]
+fn a_new_revision_does_not_drop_the_mode_you_are_reading_in() {
+    let first = parse_unified_diff("--- a.rs\n+++ a.rs\n@@ -1 +1 @@\n-old\n+new\n");
+    let second = parse_unified_diff("--- b.rs\n+++ b.rs\n@@ -1 +1 @@\n-old\n+newer\n");
+    let mut app = App::new_watching(1, first);
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert!(app.diff_pane.split);
+    assert!(!app.diff_pane.wrap);
+
+    app.update(Command::RevisionReceived {
+        number: 2,
+        files: second,
+    });
+
+    assert!(
+        app.diff_pane.split,
+        "the batch that landed kept side by side"
+    );
+    assert!(!app.diff_pane.wrap, "and kept wrapping off with it");
 }

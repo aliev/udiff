@@ -51,17 +51,20 @@ pub(super) fn crop_spans(
     out
 }
 
+/// `gutter` is how many columns the diff spends before its code starts, so the
+/// card lines up with it. The unified and side-by-side views spend different
+/// amounts.
 pub(super) fn inline_comment_lines(
     comment: &Comment,
     number: usize,
     width: usize,
+    gutter: usize,
 ) -> Vec<Line<'static>> {
     if let CommentBody::Suggestion { replacement } = &comment.body {
-        return inline_suggestion_lines(comment, replacement, number, width);
+        return inline_suggestion_lines(comment, replacement, number, width, gutter);
     }
 
-    const CODE_COLUMN: usize = 13;
-    let prefix_width = CODE_COLUMN.min(width);
+    let prefix_width = gutter.min(width);
     let card_width = width.saturating_sub(prefix_width);
     let label = format!("Comment #{number} · {}", comment.short_location());
     let wrapped = wrap_comment(comment.body.text(), card_width, &label);
@@ -113,9 +116,9 @@ fn inline_suggestion_lines(
     replacement: &str,
     number: usize,
     width: usize,
+    gutter: usize,
 ) -> Vec<Line<'static>> {
-    const CODE_COLUMN: usize = 13;
-    let prefix_width = CODE_COLUMN.min(width);
+    let prefix_width = gutter.min(width);
     let card_width = width.saturating_sub(prefix_width);
     let label = format!("Suggestion #{number} · {}", comment.short_location());
     let mut lines = vec![review_card_line(
