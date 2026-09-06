@@ -26,6 +26,9 @@ pub enum KeyAction {
     Ignored,
     Consumed,
     Copy(String),
+    /// Something worth saying out loud happened — a mode that turned another
+    /// one off, say, which is otherwise a silent surprise.
+    Notice(&'static str),
 }
 
 pub struct DiffPane {
@@ -345,7 +348,9 @@ impl DiffPane {
                 // Nothing is off to the left once the line folds instead.
                 if self.wrap {
                     self.h_scroll = 0;
-                    self.split = false;
+                    if std::mem::take(&mut self.split) {
+                        return KeyAction::Notice("wrapped rows cannot line up · side by side off");
+                    }
                 }
             }
             KeyCode::Char('s') if focused => {
@@ -353,9 +358,11 @@ impl DiffPane {
                 if self.split {
                     // Aligned rows cost one screen row each, so a folded line
                     // would drift the two sides apart.
-                    self.wrap = false;
                     self.h_scroll = 0;
                     self.side = self.side_of(self.cursor);
+                    if std::mem::take(&mut self.wrap) {
+                        return KeyAction::Notice("wrapped rows cannot line up · wrapping off");
+                    }
                 }
             }
             // Vim's own line motions: `^` is the first non-blank, which on

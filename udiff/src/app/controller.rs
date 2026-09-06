@@ -110,6 +110,10 @@ impl App {
                 ));
                 return Effect::Copy(text);
             }
+            DiffKeyAction::Notice(message) => {
+                self.notice(message);
+                return Effect::None;
+            }
             DiffKeyAction::Consumed => return Effect::None,
             DiffKeyAction::Ignored => {}
         }

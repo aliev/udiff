@@ -30,6 +30,9 @@ const DIFF_PREFIX_WIDTH: usize = 13;
 /// Gutter column of the change marker, reused for the soft-wrap marker so a
 /// continuation row lines up with the `+`/`-` above it.
 const WRAP_MARKER_COLUMN: usize = 11;
+/// Review mark, four digits, change marker, and the spaces between them: what
+/// one side of a paired row spends before its code starts.
+const SPLIT_PREFIX_WIDTH: usize = 8;
 const EDITOR_PREFIX_WIDTH: usize = 13;
 const EDITOR_TEXT_INSET: usize = 2;
 const SCROLL_MARGIN_ROWS: usize = 3;
@@ -317,7 +320,14 @@ impl Renderer<'_> {
             self.pane.h_scroll = 0;
             return;
         }
-        let available = width.saturating_sub(DIFF_PREFIX_WIDTH).max(1);
+        // Side by side, the cursor lives in half a pane behind a narrower
+        // gutter; measuring the whole pane would let it walk off the edge.
+        let available = if self.pane.split {
+            (width.saturating_sub(1) / 2).saturating_sub(SPLIT_PREFIX_WIDTH)
+        } else {
+            width.saturating_sub(DIFF_PREFIX_WIDTH)
+        }
+        .max(1);
         let line = &self.active_lines()[self.pane.cursor];
         let column = expanded_character_column(&line.text, self.pane.visual_col);
         if column < self.pane.h_scroll {
@@ -679,7 +689,9 @@ impl Renderer<'_> {
         }
         expand_tabs(&mut spans, 3);
         if let Some((raw_start, raw_end)) = self.visual_character_range(p) {
-            let cursor = (p == self.pane.cursor).then(|| {
+            let cursor = (p == self.pane.cursor
+                && side.is_none_or(|drawn| drawn == self.pane.side))
+            .then(|| {
                 expanded_character_column(&l.text, self.pane.visual_col.clamp(raw_start, raw_end))
             });
             let start = expanded_character_column(&l.text, raw_start);
@@ -688,6 +700,9 @@ impl Renderer<'_> {
         } else if p == self.pane.cursor
             && self.pane.visual_mode.is_none()
             && self.focus == Focus::Diff
+            // A context line sits in both panes under the same index, so the
+            // side has to agree before the cursor is drawn on it.
+            && side.is_none_or(|drawn| drawn == self.pane.side)
         {
             apply_block_cursor(
                 &mut spans,

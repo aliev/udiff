@@ -1971,3 +1971,68 @@ fn each_side_shows_only_its_own_line_number() {
         "the new number is on the right"
     );
 }
+
+#[test]
+fn the_cursor_stays_on_screen_when_it_walks_to_the_end_of_a_line() {
+    let long = "let value = compute(first_argument, second_argument, third_argument, fourth);";
+    let diff = format!(
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-{long}\n+{long} // changed\n"
+    );
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    let mut terminal = Terminal::new(TestBackend::new(120, 10)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    app.key(KeyEvent::new(KeyCode::Char('$'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    // The block cursor paints the text colour behind the character it is on.
+    let showing = (0..10u16)
+        .flat_map(|y| (0..120u16).map(move |x| (x, y)))
+        .any(|(x, y)| terminal.backend().buffer().cell((x, y)).unwrap().bg == theme().text);
+    assert!(
+        showing,
+        "the view has to follow the cursor into a side, not past it"
+    );
+}
+
+#[test]
+fn a_context_line_does_not_carry_the_cursor_on_both_sides() {
+    // The same line sits in both panes, but the cursor is only ever in one.
+    let diff =
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    let mut terminal = Terminal::new(TestBackend::new(120, 10)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let cursors = (0..10u16)
+        .flat_map(|y| (0..120u16).map(move |x| (x, y)))
+        .filter(|(x, y)| terminal.backend().buffer().cell((*x, *y)).unwrap().bg == theme().text)
+        .count();
+    assert_eq!(cursors, 1, "one cursor, on the side it is on");
+}
+
+#[test]
+fn swapping_the_two_modes_says_why() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(120, 10)).unwrap();
+
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let status = (0..120u16)
+        .map(|x| terminal.backend().buffer().cell((x, 9)).unwrap().symbol())
+        .collect::<String>();
+    assert!(status.contains("line up"), "turning one on: {status:?}");
+
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let status = (0..120u16)
+        .map(|x| terminal.backend().buffer().cell((x, 9)).unwrap().symbol())
+        .collect::<String>();
+    assert!(
+        status.contains("line up"),
+        "and turning the other on: {status:?}"
+    );
+}
