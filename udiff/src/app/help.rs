@@ -3,7 +3,7 @@ use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
 };
@@ -164,13 +164,7 @@ fn help_line(section: &'static str, key: &'static str, description: &'static str
                 theme().comment
             }),
         ),
-        Span::styled(
-            format!(" {key:<20} "),
-            Style::default()
-                .fg(theme().blue)
-                .bg(theme().select_bg)
-                .add_modifier(Modifier::BOLD),
-        ),
+        Span::styled(format!(" {key:<20} "), theme().chip(theme().blue)),
         Span::raw("  "),
         Span::styled(description, Style::default().fg(theme().text)),
     ])

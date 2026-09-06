@@ -7,7 +7,7 @@ use super::{
     view_helpers::{
         anchor_position, apply_block_cursor, apply_character_selection, editor_visual_rows,
         expand_tabs, expanded_character_column, line_in_comment, ordered, ordered_position,
-        wrap_code_line, wrapped_scroll,
+        reverse_row, wrap_code_line, wrapped_scroll,
     },
 };
 use crate::{
@@ -217,14 +217,11 @@ impl Renderer<'_> {
                     self.pane.file + 1,
                     self.session.files.len()
                 ),
-                Style::default()
-                    .fg(if reviewed {
-                        theme().green
-                    } else {
-                        theme().blue
-                    })
-                    .bg(theme().select_bg)
-                    .add_modifier(Modifier::BOLD),
+                theme().chip(if reviewed {
+                    theme().green
+                } else {
+                    theme().blue
+                }),
             ),
             Span::raw(" "),
         ];
@@ -569,6 +566,11 @@ impl Renderer<'_> {
                 expanded_character_column(&l.text, self.pane.visual_col),
                 code_bg,
             );
+        }
+        // Visual-line selection is carried as a bare colour, which monochrome
+        // does not have, so the whole row is reversed instead.
+        if theme().monochrome && self.visual_line_selected(p) {
+            reverse_row(&mut spans);
         }
         let content_width = spans
             .iter()

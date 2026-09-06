@@ -62,7 +62,7 @@ impl Statusline {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(tree.filter().to_owned(), Style::default().fg(theme().text)),
-                Span::styled(" ", Style::default().bg(theme().text)),
+                Span::styled(" ", theme().caret()),
             ];
             let right = if tree.no_match() {
                 Span::styled(" no matches ", Style::default().fg(theme().red))

@@ -297,8 +297,8 @@ impl FileTree {
             )
             .style(Style::default().bg(theme().surface))
             .highlight_style(if view.focused {
-                Style::default()
-                    .bg(theme().select_bg)
+                theme()
+                    .selected(Style::default())
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().bg(theme().bg)

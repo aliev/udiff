@@ -1411,3 +1411,16 @@ fn sidebar_scrolls_selected_file_into_view() {
         .collect::<String>();
     assert!(rendered.contains("file_29.rs"));
 }
+
+#[test]
+fn monochrome_marks_the_cursor_without_colour() {
+    use crate::theme::{Mode, Palette};
+    let mono = Palette::for_mode(Mode::Mono);
+    let cursor = mono.cursor(mono.bg);
+    assert_eq!(cursor.fg, None);
+    assert_eq!(cursor.bg, None);
+    assert!(
+        cursor.add_modifier.contains(Modifier::UNDERLINED),
+        "with no colour left, the cursor has to be an attribute"
+    );
+}

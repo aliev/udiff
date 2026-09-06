@@ -63,6 +63,50 @@ pub(crate) struct Palette {
 }
 
 impl Palette {
+    /// The cell under the cursor. Underlines in monochrome, because a reversed
+    /// cursor inside a reversed visual-line row would merge into the row.
+    pub(crate) fn cursor(&self, background: Color) -> Style {
+        if self.monochrome {
+            Style::default().add_modifier(Modifier::UNDERLINED | Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(background)
+                .bg(self.text)
+                .add_modifier(Modifier::BOLD)
+        }
+    }
+
+    /// A selected row or run of characters, layered over whatever style the
+    /// content already carries.
+    pub(crate) fn selected(&self, base: Style) -> Style {
+        if self.monochrome {
+            base.add_modifier(Modifier::REVERSED)
+        } else {
+            base.bg(self.select_bg)
+        }
+    }
+
+    /// A small inverted label: the mode badge, a help key, the file counter.
+    pub(crate) fn chip(&self, foreground: Color) -> Style {
+        if self.monochrome {
+            Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD)
+        } else {
+            Style::default()
+                .fg(foreground)
+                .bg(self.select_bg)
+                .add_modifier(Modifier::BOLD)
+        }
+    }
+
+    /// The block caret in the filter prompt.
+    pub(crate) fn caret(&self) -> Style {
+        if self.monochrome {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default().bg(self.text)
+        }
+    }
+
     /// Syntect writes its own RGB into every span, which is a second source of
     /// colour. Monochrome drops it and keeps the weight.
     pub(crate) fn syntax(&self, span: &crate::model::SyntaxSpan) -> Style {
@@ -245,6 +289,38 @@ mod tests {
         let mono = Palette::for_mode(Mode::Mono).syntax(&span);
         assert_eq!(mono.fg, None);
         assert!(mono.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn monochrome_emphasis_uses_attributes_rather_than_colour() {
+        let mono = Palette::for_mode(Mode::Mono);
+        // Underline, not reverse: a reversed cursor inside a reversed
+        // visual-line row would merge into it and vanish.
+        assert!(
+            mono.cursor(Color::Reset)
+                .add_modifier
+                .contains(Modifier::UNDERLINED)
+        );
+        assert!(
+            mono.selected(Style::default())
+                .add_modifier
+                .contains(Modifier::REVERSED)
+        );
+        assert!(
+            mono.chip(Color::Reset)
+                .add_modifier
+                .contains(Modifier::REVERSED)
+        );
+        assert!(mono.caret().add_modifier.contains(Modifier::REVERSED));
+    }
+
+    #[test]
+    fn colour_modes_keep_painting_emphasis_with_colour() {
+        let dark = Palette::for_mode(Mode::Dark);
+        assert_eq!(dark.cursor(dark.bg).bg, Some(dark.text));
+        assert_eq!(dark.selected(Style::default()).bg, Some(dark.select_bg));
+        assert_eq!(dark.chip(dark.blue).fg, Some(dark.blue));
+        assert_eq!(dark.caret().bg, Some(dark.text));
     }
 
     #[test]

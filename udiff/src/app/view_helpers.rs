@@ -56,13 +56,7 @@ pub(super) fn apply_block_cursor<'a>(
                 index..=index,
                 [
                     Span::styled(before, style),
-                    Span::styled(
-                        cursor,
-                        Style::default()
-                            .fg(background)
-                            .bg(theme().text)
-                            .add_modifier(Modifier::BOLD),
-                    ),
+                    Span::styled(cursor, theme().cursor(background)),
                     Span::styled(after, style),
                 ],
             );
@@ -71,13 +65,7 @@ pub(super) fn apply_block_cursor<'a>(
         offset += length;
     }
     if column == offset {
-        spans.push(Span::styled(
-            " ",
-            Style::default()
-                .fg(background)
-                .bg(theme().text)
-                .add_modifier(Modifier::BOLD),
-        ));
+        spans.push(Span::styled(" ", theme().cursor(background)));
     }
 }
 
@@ -182,6 +170,14 @@ pub(super) fn wrap_code_line(
             Line::from(row)
         })
         .collect()
+}
+
+/// Visual-line selection is carried as a background colour, which monochrome
+/// does not have. Reversing the whole row says the same thing with attributes.
+pub(super) fn reverse_row(spans: &mut [Span<'_>]) {
+    for span in spans {
+        span.style = span.style.add_modifier(Modifier::REVERSED);
+    }
 }
 
 /// Blank gutter for a soft-wrapped row, with a dim marker so a continuation
@@ -297,12 +293,9 @@ pub(super) fn apply_character_selection<'a>(
         }
         for character in span.content.chars() {
             let style = if cursor == Some(column) {
-                Style::default()
-                    .fg(theme().bg)
-                    .bg(theme().text)
-                    .add_modifier(Modifier::BOLD)
+                theme().cursor(theme().bg)
             } else if (start..=end).contains(&column) {
-                span.style.bg(theme().select_bg)
+                theme().selected(span.style)
             } else {
                 span.style
             };
@@ -382,4 +375,27 @@ pub(super) fn editor_visual_rows(text: &str, width: usize) -> Vec<(usize, usize)
         line_start = line_end + 1;
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reversing_a_row_leaves_its_own_styling_intact() {
+        let mut spans = vec![
+            Span::styled("  12 ", Style::default().fg(theme().muted)),
+            Span::styled("code", Style::default().add_modifier(Modifier::BOLD)),
+        ];
+        reverse_row(&mut spans);
+        assert!(spans[0].style.add_modifier.contains(Modifier::REVERSED));
+        assert_eq!(spans[0].style.fg, Some(theme().muted));
+        assert!(
+            spans[1]
+                .style
+                .add_modifier
+                .contains(Modifier::REVERSED | Modifier::BOLD),
+            "reversal must add to the row's styling, not replace it"
+        );
+    }
 }
