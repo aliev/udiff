@@ -13,7 +13,10 @@ and lets you attach a comment or a replacement to the exact lines that need
 one. When you are done, one key copies the whole review as text the agent can
 act on.
 
-![μdiff reviewing a diff](docs/assets/udiff-demo.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/udiff-hero-dark.png">
+  <img alt="μdiff reviewing a diff, four of thirteen files marked as read" src="docs/assets/udiff-hero-light.png">
+</picture>
 
 ## When to use it
 
@@ -74,7 +77,15 @@ git diff --no-index --no-color -- old.rs new.rs | udiff
 
 ## What you get back
 
-`Shift+Y` copies your review as plain text. A comment:
+Notes attach to the lines they belong to — a comment, or a replacement you write
+yourself:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/udiff-review-dark.png">
+  <img alt="A comment and a suggested replacement attached to lines of a diff" src="docs/assets/udiff-review-light.png">
+</picture>
+
+`Shift+Y` copies them as plain text. A comment:
 
 ```
 1. src/main.rs (old lines 3; new lines 3-4)
