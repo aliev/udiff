@@ -1,21 +1,109 @@
 # μdiff
 
-A focused Rust/Ratatui terminal UI for reviewing unified diffs and patch files.
+Reviewing what a coding agent wrote is harder than reviewing what a person
+wrote. It writes faster than you can read, touches files you were not thinking
+about, and delivers everything at once, so there is no natural moment to stop
+and look. Keeping track of what you have already checked is on you, and so is
+explaining where the problems are — by file and line, in prose. Skimming and
+accepting is easier, which is how unreviewed code gets in.
 
-μdiff reads a diff from standard input, presents it in a quiet GitHub-like
-interface, and lets you attach temporary comments and code suggestions to lines
-or ranges. Review items can be copied as compact plain text for use in another
-tool. Its executable is named `udiff` so it stays quick to type.
+μdiff exists for that review. It shows the agent's edits in batches as they
+land instead of one wall at the end, remembers which files you have signed off,
+and lets you attach a comment or a replacement to the exact lines that need
+one. When you are done, one key copies the whole review as text the agent can
+act on.
+
+![μdiff reviewing a diff](docs/assets/udiff-demo.png)
+
+## When to use it
+
+### Watching an agent work
+
+Point μdiff at the directory the agent is editing and leave it open:
+
+```bash
+udiff --watch .
+```
+
+Each time the agent pauses, its edits arrive as a new revision. `{` and `}` move
+between revisions, `Space` marks a file you are happy with, `c` selects lines you
+are not, and `Shift+Y` copies every note you left — across every revision,
+skipping the files you marked reviewed.
+
+Paste that into the agent and it has your review in a form it can act on. Nothing
+is written to disk and no repository is required, so it works on a scratch
+directory as well as on a checkout.
+
+### Reading your own changes before you commit
+
+An hour of work is hard to remember in full. Read it before it becomes a commit:
+
+```bash
+git diff | udiff
+git diff --staged | udiff
+```
+
+This is where the forgotten `dbg!`, the half-finished branch, and the file you
+never meant to touch turn up.
+
+### Reviewing a branch or a patch
+
+```bash
+git diff main..HEAD | udiff
+cat changes.patch | udiff
+```
+
+Press `r` on a line to write a replacement instead of a comment. Suggestions come
+out in GitHub's own review syntax, so they paste into a pull request unchanged.
+
+### Comparing two files or directories
+
+Useful for generated output, configuration that has drifted, or a before and
+after:
+
+```bash
+diff -u old.rs new.rs | udiff
+diff -ru old-dir/ new-dir/ | udiff
+```
+
+Git can do the same for files outside a repository:
+
+```bash
+git diff --no-index --no-color -- old.rs new.rs | udiff
+```
+
+## What you get back
+
+`Shift+Y` copies your review as plain text. A comment:
+
+```
+1. src/main.rs (old lines 3; new lines 3-4)
+Selected diff:
+-old
++new
+Comment: this allocation is redundant
+```
+
+A suggested replacement, in GitHub's syntax:
+
+````
+2. src/main.rs (new lines 12)
+Selected diff:
++    let value = compute().unwrap();
+Suggested replacement:
+```suggestion
+    let value = compute()?;
+```
+````
+
+Comments live only for the current run. μdiff produces a review; it does not
+store one.
 
 ## Install
-
-### Homebrew
 
 ```bash
 brew install aliev/tap/udiff
 ```
-
-### Installer
 
 macOS and Linux:
 
@@ -30,172 +118,32 @@ Windows PowerShell:
 powershell -ExecutionPolicy Bypass -c "irm https://github.com/aliev/udiff/releases/latest/download/udiff-installer.ps1 | iex"
 ```
 
-### Build from source
-
-μdiff requires Rust 1.88 or newer:
+From source:
 
 ```bash
 cargo install --path udiff --locked
 ```
 
-The default `watch` feature adds the optional Uwatch integration. To build
-μdiff as a standalone stdin diff viewer without the Uwatch dependency:
-
-```bash
-cargo install --path udiff --locked --no-default-features
-```
-
-In that build, passing `--watch` reports that the feature is unavailable.
-
-## Usage
-
-μdiff accepts a unified diff on standard input:
-
-```bash
-git diff | udiff
-git diff master..HEAD | udiff
-git diff --staged | udiff
-cat changes.patch | udiff
-```
-
-Running `udiff` without piped input exits with a short usage hint. An empty or
-unsupported input exits successfully with `udiff: nothing to view`.
-Comments, suggestions, and reviewed-file state are intentionally local to the
-current run.
-
-### Watch mode
-
-Watch mode is provided by the default `watch` Cargo feature.
-
-Open μdiff immediately and review revisions as files change:
-
-```bash
-udiff --watch .
-```
-
-Pipe an existing diff to seed the review with a context revision before live
-filesystem revisions arrive:
-
-```bash
-git diff | udiff --watch .
-```
-
-Watch mode is in-memory and does not create a journal or require Git. Each
-quiet-period batch from Uwatch appears as a revision in μdiff. μdiff
-follows new revisions while you are viewing the latest one. Use `{` and `}` to
-move between older and newer revisions. Cursor, review items, and reviewed-file
-state are retained independently for every revision. `Shift+Y` copies comments
-and suggestions from every revision in chronological order. When stdin provides
-the initial diff, it appears as `revision 1/N · context`; the watcher still
-snapshots the current directory normally and numbers subsequent live revisions
-from `#1`.
-
-### Compare two files
-
-The simplest way to review changes between two files is `diff -u`:
-
-```bash
-diff -u old.rs new.rs | udiff
-```
-
-The `-u` option produces the unified-diff format expected by μdiff. Git can
-produce a similar diff without requiring the files to be inside a repository:
-
-```bash
-git diff --no-index --no-color -- old.rs new.rs | udiff
-```
-
-To compare directories, use either recursive `diff` or Git:
-
-```bash
-diff -ru old-dir/ new-dir/ | udiff
-git diff --no-index --no-color -- old-dir/ new-dir/ | udiff
-```
-
-Both `diff` and `git diff --no-index` exit with status `1` when differences are
-found. This is expected, although a shell configured with `pipefail` may report
-the whole pipeline as unsuccessful.
-
-Tools such as `delta` are useful for viewing diffs directly, but their output
-contains terminal styling intended for humans. Feed the original uncolored
-unified diff—not `delta` output—into μdiff.
-
-## Appearance
-
-μdiff picks one of three appearances at startup:
-
-| Variable | Effect |
-|---|---|
-| `NO_COLOR` | Any non-empty value turns off colour. Emphasis falls back to bold, underline, and reverse video. |
-| `UDIFF_THEME` | `dark`, `light`, or `mono`, overriding everything but `NO_COLOR`. An unrecognised value is ignored. |
-| `COLORFGBG` | Consulted only when neither of the above applies. Background colour `7` or `15` selects the light palette. |
-
-Without any of them μdiff uses its dark palette. `COLORFGBG` is set by urxvt
-and konsole among others, but not by iTerm2, Terminal.app, Alacritty, or kitty,
-so on those terminals set `UDIFF_THEME` yourself:
-
-```bash
-export UDIFF_THEME=light
-```
-
-## UI
-
-- GitHub-style folder/file sidebar with fuzzy filtering and a review meter.
-- Responsive layout: the sidebar scales with the terminal, and below 64 columns
-  only the focused pane is shown, with `-` or `Tab` swapping between them.
-- Separate old/new gutters and per-hunk syntax highlighting.
-- Full-row add/remove backgrounds, cursor, and visual ranges.
-- Soft-wrapped lines are marked with `↪` so a continuation never reads as code.
-- A scrollbar appears while the current file overflows the viewport.
-- Inline multiline comments attached to lines or ranges.
-- Syntax-highlighted code suggestions that replace contiguous new-side or
-  context lines.
-- Comments appear as selectable children beneath their files.
-- Mouse support plus Vim-style navigation.
-- VS Code-style sticky hunk headers.
-
-Clipboard yanking uses OSC 52 and therefore requires a terminal that permits
-OSC 52 clipboard access.
-
-## Workspace
-
-μdiff lives in [`udiff/`](udiff/), while [`uwatch/`](uwatch/README.md) is an
-independently useful secondary package that provides the optional in-memory
-watcher integration. The repository root is a virtual Cargo workspace, so
-`cargo build` and `cargo test` operate on both packages together.
-
 ## Keys
 
-| Key | Action |
-|---|---|
-| `-`, `Tab` | toggle focus between sidebar and diff |
-| `?` | open keyboard help; `j/k` scrolls it on short terminals |
-| `j/k`, arrows | move |
-| `G`, `gg`, `42gg` | end/start/jump to line |
-| `c`, then `j/k` or arrows | select diff lines for review |
-| `Enter`, double click | add or edit a comment |
-| `r` | suggest a replacement for the current line or selected range |
-| `Enter`, `Esc` | save/cancel the review editor |
-| `Shift+Enter` | insert a newline in a comment or suggestion |
-| `[` / `]` | previous/next comment |
-| `d` / `u` | delete comment / undo deletion |
-| `Space` | mark the current file reviewed/reopen it and advance |
-| `v`, then arrows or `h/j/k/l` | characterwise visual selection |
-| `Shift+V`, then `j/k` or arrows | linewise visual selection |
-| `y` | copy the visual selection |
-| `Shift+Y` | copy comments and suggestions from files not marked reviewed |
-| `Shift+R` | clear in-memory revisions and return to the waiting screen |
-| `e` | open the current file in `$EDITOR` |
-| `/` | filter files through the statusline |
-| `h/l`, left/right | close/open a tree node in the sidebar |
-| `{` / `}` | previous/next revision |
-| `Ctrl+U` / `Ctrl+D` | half-page up/down |
-| `q` | quit |
+Press `?` for the full list. `j`/`k` and the arrows move, `Tab` switches between
+the file list and the diff, `/` filters files, `q` quits.
+
+## Notes
+
+Copying uses OSC 52, so the terminal has to allow clipboard access from programs.
+
+On a light terminal, set `UDIFF_THEME=light`. μdiff also honours `NO_COLOR`.
+
+Feed μdiff an uncolored diff. Tools like `delta` emit terminal styling meant for
+human eyes, which μdiff cannot parse — pipe it the original `git diff` instead.
+
+`diff` and `git diff --no-index` exit with status `1` when they find differences.
+A shell running with `pipefail` will report the whole pipeline as failed.
 
 ## Contributing
 
-Start with [ARCHITECTURE.md](ARCHITECTURE.md) to understand the codebase, then
-see [CONTRIBUTING.md](CONTRIBUTING.md). μdiff is available under the
-[MIT License](LICENSE). Release notes are maintained in
-[CHANGELOG.md](CHANGELOG.md), and the maintainer release process is documented
-in [RELEASING.md](RELEASING.md).
+Start with [ARCHITECTURE.md](ARCHITECTURE.md), then
+[CONTRIBUTING.md](CONTRIBUTING.md). Release notes live in
+[CHANGELOG.md](CHANGELOG.md). μdiff is available under the
+[MIT License](LICENSE).
