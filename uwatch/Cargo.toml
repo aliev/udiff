@@ -16,7 +16,7 @@ ignore = "0.4"
 notify = "8.2"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-similar = "2.7"
+similar = "3.2"
 
 [dev-dependencies]
 tempfile = "3.20"
