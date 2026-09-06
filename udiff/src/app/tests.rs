@@ -1529,3 +1529,51 @@ fn the_file_bar_is_only_as_tall_as_its_text() {
         "and it ends there: the next row is already content"
     );
 }
+
+#[test]
+fn a_comment_label_is_cut_to_the_explorer_not_to_a_fixed_length() {
+    // The excerpt used to be a hardcoded 20 characters, so on a deeply nested
+    // file it ran past the divider and was clipped mid-word.
+    let diff = "diff --git a/udiff/src/app/file_tree.rs b/udiff/src/app/file_tree.rs\n--- a/udiff/src/app/file_tree.rs\n+++ b/udiff/src/app/file_tree.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let comment = Comment {
+        id: "t-001".into(),
+        path: "udiff/src/app/file_tree.rs".into(),
+        excerpt: "new".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(1),
+        new_end: Some(1),
+        anchor_old: None,
+        anchor_new: Some(1),
+        body: CommentBody::Text(
+            "this excerpt is far longer than any sidebar could ever show".into(),
+        ),
+    };
+
+    let comment_row = |width: u16| {
+        let mut app = App::new(parse_unified_diff(diff), vec![comment.clone()]);
+        let mut terminal = Terminal::new(TestBackend::new(width, 14)).unwrap();
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let sidebar = super::view::sidebar_width(width, false);
+        let buffer = terminal.backend().buffer();
+        let row = (2..14u16)
+            .map(|y| {
+                (0..sidebar)
+                    .map(|x| buffer.cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .find(|row| row.contains("#1"))
+            .expect("the comment is listed under its file");
+        assert!(
+            row.ends_with('│'),
+            "the label reached the divider at width {width}: {row:?}"
+        );
+        row
+    };
+
+    // Too narrow to say anything: the excerpt is dropped, not cut to a stub.
+    assert!(!comment_row(80).contains('…'));
+    // With room, it appears and is ellipsised to fit.
+    assert!(comment_row(120).contains('…'));
+    assert!(comment_row(200).contains('…'));
+}

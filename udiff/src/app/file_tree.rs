@@ -78,17 +78,17 @@ impl Folder {
         folder.files.push(file);
     }
 
-    fn items(&self, view: &View<'_>) -> Vec<TreeItem<'static, NodeId>> {
+    fn items(&self, view: &View<'_>, depth: usize) -> Vec<TreeItem<'static, NodeId>> {
         let mut items = self
             .folders
             .iter()
-            .map(|folder| folder.item(view))
+            .map(|folder| folder.item(view, depth))
             .collect::<Vec<_>>();
-        items.extend(self.files.iter().map(|file| file_item(*file, view)));
+        items.extend(self.files.iter().map(|file| file_item(*file, view, depth)));
         items
     }
 
-    fn item(&self, view: &View<'_>) -> TreeItem<'static, NodeId> {
+    fn item(&self, view: &View<'_>, depth: usize) -> TreeItem<'static, NodeId> {
         TreeItem::new(
             NodeId::Folder(self.path.clone()),
             Line::from(Span::styled(
@@ -97,7 +97,7 @@ impl Folder {
                     .fg(theme().muted)
                     .add_modifier(Modifier::BOLD),
             )),
-            self.items(view),
+            self.items(view, depth + 1),
         )
         .expect("folder children have unique identifiers")
     }
@@ -139,11 +139,18 @@ pub struct View<'a> {
     /// Whether the diff pane sits to the right, so the explorer knows if it
     /// should draw a divider and join it into the header rule.
     pub divided: bool,
+    /// Columns the explorer occupies, so a label can be cut to fit rather than
+    /// to a fixed length.
+    pub width: u16,
 }
 
 impl FileTree {
     pub fn filter(&self) -> &str {
         &self.filter
+    }
+
+    pub fn width(&self) -> u16 {
+        self.area.width
     }
 
     pub fn no_match(&self) -> bool {
@@ -313,7 +320,7 @@ impl FileTree {
                 root.insert(&diff.path, file);
             }
         }
-        root.items(view)
+        root.items(view, 0)
     }
 
     fn sync_selection(&mut self, items: &[TreeItem<'_, NodeId>], current_file: usize) {
@@ -399,6 +406,37 @@ fn highlight_style(focused: bool) -> Style {
     }
 }
 
+/// Columns a label at `depth` may spend on its excerpt. Returns `0` when what
+/// remains is too short to say anything, in which case the excerpt is dropped
+/// rather than cut to a stub.
+fn excerpt_budget(width: u16, depth: usize, head_width: usize) -> usize {
+    // One cell of highlight gutter, two per level of nesting, two for the
+    // expander, and one for the divider on the right.
+    let indent = 1 + depth * 2 + 2;
+    let free = usize::from(width)
+        .saturating_sub(indent + 1)
+        .saturating_sub(head_width + 2);
+    if free < 4 { 0 } else { free }
+}
+
+fn ellipsised(text: &str, budget: usize) -> String {
+    if UnicodeWidthStr::width(text) <= budget {
+        return text.to_owned();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for character in text.chars() {
+        let step = UnicodeWidthStr::width(character.to_string().as_str());
+        if used + step > budget - 1 {
+            break;
+        }
+        out.push(character);
+        used += step;
+    }
+    out.push('\u{2026}');
+    out
+}
+
 /// Columns left for the review meter once the counters have taken theirs.
 /// Returns `0` when what remains is too small to read as a meter.
 fn meter_width(inner: usize, label_width: usize) -> usize {
@@ -420,7 +458,7 @@ fn progress_spans(reviewed: usize, total: usize, width: usize) -> Vec<Span<'stat
     ]
 }
 
-fn file_item(file: usize, view: &View<'_>) -> TreeItem<'static, NodeId> {
+fn file_item(file: usize, view: &View<'_>, depth: usize) -> TreeItem<'static, NodeId> {
     let diff = &view.files[file];
     let reviewed = view.reviewed_files.contains(&file);
     let current = file == view.current_file;
@@ -464,7 +502,7 @@ fn file_item(file: usize, view: &View<'_>) -> TreeItem<'static, NodeId> {
     let children = comments
         .into_iter()
         .enumerate()
-        .map(|(number, (comment, item))| comment_item(file, comment, number, item, view))
+        .map(|(number, (comment, item))| comment_item(file, comment, number, item, view, depth + 1))
         .collect();
     TreeItem::new(NodeId::File(file), Line::from(label), children)
         .expect("comment identifiers are unique")
@@ -476,18 +514,20 @@ fn comment_item(
     number: usize,
     item: &Comment,
     view: &View<'_>,
+    depth: usize,
 ) -> TreeItem<'static, NodeId> {
-    let text = item.first_text().replace('\n', " ");
-    let mut short = text.chars().take(20).collect::<String>();
-    if text.chars().count() > 20 {
-        short.push('…');
-    }
     let marker = if item.body.is_suggestion() { "S#" } else { "#" };
+    let head = format!("{}  {marker}{}", item.short_location(), number + 1);
+    let text = item.first_text().replace('\n', " ");
+    let label = match excerpt_budget(view.width, depth, UnicodeWidthStr::width(head.as_str())) {
+        0 => head,
+        budget => format!("{head}  {}", ellipsised(&text, budget)),
+    };
     let selected = file == view.current_file && view.active_comment == Some(comment);
     TreeItem::new_leaf(
         NodeId::Comment { file, comment },
         Line::from(Span::styled(
-            format!("{}  {marker}{}  {short}", item.short_location(), number + 1),
+            label,
             Style::default()
                 .fg(if selected {
                     theme().text
@@ -553,6 +593,7 @@ mod tests {
             active_comment: None,
             focused: true,
             divided: true,
+            width: 36,
         }
     }
 

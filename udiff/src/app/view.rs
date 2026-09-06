@@ -57,6 +57,7 @@ impl App {
                 active_comment: self.active_comment_index(),
                 focused,
                 divided: body[1].width > 0,
+                width: body[0].width,
             },
         );
         self.diff_pane.draw(

@@ -91,6 +91,7 @@ impl App {
             active_comment: self.active_comment_index(),
             focused: true,
             divided: true,
+            width: self.file_tree.width(),
         };
         match self.file_tree.search(key, &view) {
             SearchAction::Cancel => self.focus = self.search_return_focus,
