@@ -44,6 +44,8 @@ pub struct App {
 
     // Shared UI state.
     focus: Focus,
+    /// Explorer hidden by hand. Session-only: μdiff keeps no settings.
+    sidebar_hidden: bool,
     search_return_focus: Focus,
     help: Help,
     statusline: Statusline,

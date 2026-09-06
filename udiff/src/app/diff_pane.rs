@@ -77,8 +77,9 @@ impl DiffPane {
         session: &Session,
         editor: &CommentEditor,
         focus: Focus,
+        sidebar_hidden: bool,
     ) {
-        diff_view::render(self, frame, area, session, editor, focus);
+        diff_view::render(self, frame, area, session, editor, focus, sidebar_hidden);
     }
 
     pub fn selected_bounds(&self) -> (usize, usize) {

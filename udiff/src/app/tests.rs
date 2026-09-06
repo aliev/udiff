@@ -321,7 +321,7 @@ fn tab_moves_focus_accent_between_panels() {
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     // The explorer divider sits on its last column, wherever the layout put it.
-    let divider = super::view::sidebar_width(100, false) - 1;
+    let divider = super::view::sidebar_width(100, false, false) - 1;
     let accent = |terminal: &Terminal<TestBackend>| {
         terminal.backend().buffer().cell((divider, 3)).unwrap().fg
     };
@@ -753,7 +753,7 @@ fn tab_indented_go_lines_keep_their_indent_and_cursor_when_moving_down() {
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     // First code column: the explorer, then the diff gutter.
-    let code = super::view::sidebar_width(100, false) + 13;
+    let code = super::view::sidebar_width(100, false, false) + 13;
 
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let first_line = terminal.backend().buffer();
@@ -1445,7 +1445,7 @@ fn a_file_with_comments_still_lines_up_with_its_siblings() {
     let width = 100;
     let mut terminal = Terminal::new(TestBackend::new(width, 12)).unwrap();
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    let sidebar = super::view::sidebar_width(width, false);
+    let sidebar = super::view::sidebar_width(width, false, false);
     let buffer = terminal.backend().buffer();
 
     let column_of = |name: &str| {
@@ -1517,7 +1517,7 @@ fn the_file_bar_is_only_as_tall_as_its_text() {
     let mut terminal = Terminal::new(TestBackend::new(width, 12)).unwrap();
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let buffer = terminal.backend().buffer();
-    let inside_diff = super::view::sidebar_width(width, false) + 20;
+    let inside_diff = super::view::sidebar_width(width, false, false) + 20;
 
     assert_eq!(
         buffer.cell((inside_diff, 0)).unwrap().bg,
@@ -1555,7 +1555,7 @@ fn a_comment_label_is_cut_to_the_explorer_not_to_a_fixed_length() {
         let mut app = App::new(parse_unified_diff(diff), vec![comment.clone()]);
         let mut terminal = Terminal::new(TestBackend::new(width, 14)).unwrap();
         terminal.draw(|frame| app.draw(frame)).unwrap();
-        let sidebar = super::view::sidebar_width(width, false);
+        let sidebar = super::view::sidebar_width(width, false, false);
         let buffer = terminal.backend().buffer();
         let row = (2..14u16)
             .map(|y| {
@@ -1640,4 +1640,48 @@ fn the_mouse_leaves_the_diff_alone_while_the_editor_is_open() {
     assert_eq!(app.diff_pane.cursor, cursor, "the cursor stayed put");
     assert_eq!(app.diff_pane.range_anchor, anchor, "the range did not grow");
     assert_eq!(app.focus, Focus::Editor, "and the editor kept focus");
+}
+
+#[test]
+fn hiding_the_explorer_leaves_a_mark_where_it_was() {
+    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+    let screen = |terminal: &Terminal<TestBackend>| {
+        (0..12u16)
+            .map(|y| {
+                (0..100u16)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    // A folder arrow belongs to the tree alone; the path itself also appears
+    // in the diff's own file bar, so it proves nothing.
+    assert!(
+        screen(&terminal).iter().any(|row| row.contains('▾')),
+        "the tree is there to begin with"
+    );
+
+    app.key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let hidden = screen(&terminal);
+    assert!(
+        !hidden.iter().any(|row| row.contains('▾')),
+        "the tree is gone"
+    );
+    assert!(
+        hidden[0].starts_with('▸'),
+        "and says so: {:?}",
+        &hidden[0][..20]
+    );
+    assert_eq!(app.focus, Focus::Diff, "focus cannot rest on a hidden pane");
+
+    // `-` still means "take me to the files", so it brings them back.
+    app.key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(screen(&terminal).iter().any(|row| row.contains('▾')));
+    assert_eq!(app.focus, Focus::Files);
 }

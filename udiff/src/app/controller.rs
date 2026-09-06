@@ -21,6 +21,7 @@ impl App {
             session: state.session,
             diff_pane: state.diff_pane,
             focus: Focus::Diff,
+            sidebar_hidden: false,
             search_return_focus: Focus::Diff,
             comment_editor: Default::default(),
             file_tree: state.file_tree,
@@ -149,6 +150,21 @@ impl App {
             }
             KeyCode::Char('/') => {
                 self.begin_search();
+                Effect::None
+            }
+            KeyCode::Char('b') => {
+                self.sidebar_hidden = !self.sidebar_hidden;
+                // Focus cannot rest on a pane that is not drawn.
+                if self.sidebar_hidden {
+                    self.focus = Focus::Diff;
+                }
+                Effect::None
+            }
+            // Revealing on `-` keeps the key meaning "take me to the files"
+            // rather than leaving it dead while the explorer is away.
+            KeyCode::Char('-') | KeyCode::Tab if self.sidebar_hidden => {
+                self.sidebar_hidden = false;
+                self.focus = Focus::Files;
                 Effect::None
             }
             KeyCode::Char('-') | KeyCode::Tab => {

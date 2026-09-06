@@ -49,6 +49,7 @@ impl DiffPane {
             session,
             editor,
             focus,
+            sidebar_hidden: false,
         }
         .diff_line(line, position, width)
     }
@@ -68,6 +69,7 @@ impl DiffPane {
             session,
             editor,
             focus,
+            sidebar_hidden: false,
         }
         .append_editor(lines, map, title, width);
     }
@@ -80,12 +82,14 @@ pub(super) fn render(
     session: &Session,
     editor: &CommentEditor,
     focus: Focus,
+    sidebar_hidden: bool,
 ) {
     Renderer {
         pane,
         session,
         editor,
         focus,
+        sidebar_hidden,
     }
     .draw_main(frame, area);
 }
@@ -95,6 +99,7 @@ struct Renderer<'a> {
     session: &'a Session,
     editor: &'a CommentEditor,
     focus: Focus,
+    sidebar_hidden: bool,
 }
 
 impl Renderer<'_> {
@@ -190,7 +195,13 @@ impl Renderer<'_> {
         } else {
             file.path.clone()
         };
-        let mut left_header = vec![Span::raw(" ")];
+        // With the explorer away, a mark where it used to be says it is folded
+        // rather than gone.
+        let mut left_header = vec![if self.sidebar_hidden {
+            Span::styled("\u{25b8}", Style::default().fg(theme().border))
+        } else {
+            Span::raw(" ")
+        }];
         left_header.extend(crate::app::render::file_status_spans(file.status));
         left_header.extend([
             Span::styled(

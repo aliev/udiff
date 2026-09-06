@@ -18,8 +18,12 @@ const SIDEBAR_MAX_WIDTH: u16 = 40;
 const NARROW_BODY_WIDTH: u16 = 64;
 
 /// Explorer width for a body of `total` columns. Returns `0` when the explorer
-/// is hidden and `total` when it takes the screen on its own.
-pub(super) fn sidebar_width(total: u16, files_focused: bool) -> u16 {
+/// is gone and `total` when it takes the screen on its own. An explicit `hidden`
+/// outranks the narrow-terminal rule: asked to be gone means gone.
+pub(super) fn sidebar_width(total: u16, files_focused: bool, hidden: bool) -> u16 {
+    if hidden {
+        return 0;
+    }
     if total < NARROW_BODY_WIDTH {
         return if files_focused { total } else { 0 };
     }
@@ -40,7 +44,7 @@ impl App {
             .constraints([Constraint::Min(8), Constraint::Length(1)])
             .split(root);
         let focused = matches!(self.focus, Focus::Files | Focus::Filter);
-        let sidebar = sidebar_width(rows[0].width, focused);
+        let sidebar = sidebar_width(rows[0].width, focused, self.sidebar_hidden);
         let body = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Length(sidebar), Constraint::Min(0)])
@@ -66,6 +70,7 @@ impl App {
             &self.session,
             &self.comment_editor,
             self.focus,
+            self.sidebar_hidden,
         );
         self.statusline.draw(
             frame,
@@ -94,14 +99,22 @@ mod tests {
 
     #[test]
     fn sidebar_grows_with_the_body_between_its_bounds() {
-        assert_eq!(sidebar_width(80, false), SIDEBAR_MIN_WIDTH);
-        assert_eq!(sidebar_width(120, false), 33);
-        assert_eq!(sidebar_width(240, false), SIDEBAR_MAX_WIDTH);
+        assert_eq!(sidebar_width(80, false, false), SIDEBAR_MIN_WIDTH);
+        assert_eq!(sidebar_width(120, false, false), 33);
+        assert_eq!(sidebar_width(240, false, false), SIDEBAR_MAX_WIDTH);
     }
 
     #[test]
     fn narrow_bodies_show_only_the_focused_pane() {
-        assert_eq!(sidebar_width(50, true), 50);
-        assert_eq!(sidebar_width(50, false), 0);
+        assert_eq!(sidebar_width(50, true, false), 50);
+        assert_eq!(sidebar_width(50, false, false), 0);
+    }
+
+    #[test]
+    fn hiding_the_explorer_outranks_every_other_rule() {
+        // Wide, narrow, focused, unfocused: asked to be gone means gone.
+        for (total, focused) in [(240, false), (120, true), (50, true), (50, false)] {
+            assert_eq!(sidebar_width(total, focused, true), 0, "{total}/{focused}");
+        }
     }
 }
