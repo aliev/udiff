@@ -1,17 +1,17 @@
 # μdiff
 
-Reviewing what a coding agent wrote is harder than reviewing what a person
-wrote. It writes faster than you can read, touches files you were not thinking
-about, and delivers everything at once, so there is no natural moment to stop
-and look. Keeping track of what you have already checked is on you, and so is
-explaining where the problems are — by file and line, in prose. Skimming and
-accepting is easier, which is how unreviewed code gets in.
+A coding agent writes faster than you can read and hands you everything at
+once. μdiff turns that pile into a review: it shows the edits in batches as
+they land, remembers what you have already signed off, and lets you write
+comments and replacements against the lines themselves.
 
-μdiff exists for that review. It shows the agent's edits in batches as they
-land instead of one wall at the end, remembers which files you have signed off,
-and lets you attach a comment or a replacement to the exact lines that need
-one. When you are done, one key copies the whole review as text the agent can
-act on.
+- **Anything that produces a unified diff.** μdiff reads it on standard input,
+  so `git diff`, `gh pr diff`, `diff -u` on two loose files, or a patch from a
+  mailing list all work the same. No repository required.
+- **One binary, about 3 MB, with no runtime beside it.**
+- **The review leaves as plain text.** One key copies it in GitHub's suggestion
+  syntax — paste it into your agent, into a pull request, into a message. No
+  plugin, no protocol, no session to keep open.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/udiff-hero-dark.png">
