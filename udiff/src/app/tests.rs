@@ -1483,3 +1483,28 @@ fn the_mode_badge_reads_as_a_word_not_a_colour() {
         "the badge is a label, not a palette lookup: {status:?}"
     );
 }
+
+#[test]
+fn nothing_is_left_to_the_terminals_own_foreground() {
+    // A cell painted with our background but the terminal's default foreground
+    // only looks right while the two themes agree. Under UDIFF_THEME=light in
+    // a dark terminal it is the terminal's pale text on our white surface.
+    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let buffer = terminal.backend().buffer();
+
+    let stranded = (0..12u16)
+        .flat_map(|y| (0..80u16).map(move |x| (x, y)))
+        .filter(|(x, y)| {
+            let cell = buffer.cell((*x, *y)).unwrap();
+            cell.fg == Color::Reset && cell.symbol() != " "
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        stranded.is_empty(),
+        "cells drawn in the terminal's own foreground: {stranded:?}"
+    );
+}

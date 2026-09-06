@@ -401,7 +401,7 @@ impl Renderer<'_> {
         }
         self.pane.row_map = map;
         f.render_widget(
-            Paragraph::new(lines).style(Style::default().bg(theme().bg)),
+            Paragraph::new(lines).style(Style::default().fg(theme().text).bg(theme().bg)),
             a,
         );
     }

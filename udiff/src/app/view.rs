@@ -32,7 +32,7 @@ impl App {
     pub fn draw(&mut self, frame: &mut Frame) {
         let root = frame.area();
         frame.render_widget(
-            Block::default().style(Style::default().bg(theme().bg)),
+            Block::default().style(Style::default().fg(theme().text).bg(theme().bg)),
             root,
         );
         let rows = Layout::default()

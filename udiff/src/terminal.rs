@@ -149,7 +149,7 @@ fn apply_watch_event(app: &mut Option<App>, event: WatchInputEvent) {
 fn draw_waiting(frame: &mut Frame, watched: Option<&Path>) {
     let area = frame.area();
     frame.render_widget(
-        Block::default().style(Style::default().bg(theme().bg)),
+        Block::default().style(Style::default().fg(theme().text).bg(theme().bg)),
         area,
     );
     let panel = waiting_panel(area);
