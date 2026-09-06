@@ -140,7 +140,8 @@ cargo install --path udiff --locked
 ## Keys
 
 Press `?` for the full list. `j`/`k` and the arrows move, `Tab` switches between
-the file list and the diff, `/` filters files, `q` quits.
+the file list and the diff, `b` hides the file list, `s` shows the diff side by
+side, `/` filters files, `q` quits.
 
 ## Notes
 

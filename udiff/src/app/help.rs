@@ -124,6 +124,7 @@ fn help_lines() -> Vec<Line<'static>> {
         help_line("PANELS", "- / Tab", "toggle explorer / diff"),
         help_line("", "b", "hide / show the explorer"),
         help_line("", "w", "wrap long lines / cut them"),
+        help_line("", "s", "side by side / unified"),
         help_line("", "/", "search files"),
         help_line("", "?", "open / close this help"),
         Line::default(),

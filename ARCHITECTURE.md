@@ -36,7 +36,8 @@ root is a virtual workspace shared with the secondary `uwatch` package.
 8. Follow one route into `review.rs`, `navigation.rs`, or `revisions.rs`.
 9. Read `diff_pane.rs` for cursor/selection behavior and `diff_view.rs` for its
    rendering.
-10. `udiff/src/terminal.rs` owns raw mode, the event loop, clipboard access, and
+10. `udiff/src/app/rows.rs` pairs the lines for the side-by-side view.
+11. `udiff/src/terminal.rs` owns raw mode, the event loop, clipboard access, and
     `$EDITOR`.
 
 You do not need to understand rendering before changing review behavior.
@@ -51,6 +52,7 @@ You do not need to understand rendering before changing review behavior.
 | Comment/suggestion data or copied prompt format | `udiff/src/comment.rs` |
 | Create, edit, delete, or export review items | `udiff/src/app/review.rs` |
 | Cursor, range, visual selection, or yank | `udiff/src/app/diff_pane.rs` |
+| Side-by-side pairing | `udiff/src/app/rows.rs` |
 | File tree, focus, or search | `udiff/src/app/navigation.rs`, `udiff/src/app/file_tree.rs` |
 | Watch revision history | `udiff/src/app/revisions.rs` |
 | Key or mouse routing | `udiff/src/app/controller.rs` |
