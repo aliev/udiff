@@ -20,12 +20,15 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use regex::Regex;
 use unicode_width::UnicodeWidthStr;
 
 const DIFF_PREFIX_WIDTH: usize = 13;
+/// Gutter column of the change marker, reused for the soft-wrap marker so a
+/// continuation row lines up with the `+`/`-` above it.
+const WRAP_MARKER_COLUMN: usize = 11;
 const EDITOR_PREFIX_WIDTH: usize = 13;
 const EDITOR_TEXT_INSET: usize = 2;
 const SCROLL_MARGIN_ROWS: usize = 3;
@@ -168,6 +171,11 @@ impl Renderer<'_> {
     }
 
     fn draw_main(&mut self, f: &mut Frame, a: Rect) {
+        self.pane.area = Rect::default();
+        if a.width == 0 || a.height == 0 {
+            self.pane.row_map.clear();
+            return;
+        }
         let parts = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(3)])
@@ -195,11 +203,17 @@ impl Renderer<'_> {
             ),
             Span::styled(format!(" −{}", file.deletions()), Style::default().fg(RED)),
         ]);
+        let reviewed = self.session.reviewed_files.contains(&self.pane.file);
         let right_header = vec![
             Span::styled(
-                " DIFF ",
+                format!(
+                    " {}{}/{} ",
+                    if reviewed { "\u{2713} " } else { "" },
+                    self.pane.file + 1,
+                    self.session.files.len()
+                ),
                 Style::default()
-                    .fg(BLUE)
+                    .fg(if reviewed { GREEN } else { BLUE })
                     .bg(SELECT_BG)
                     .add_modifier(Modifier::BOLD),
             ),
@@ -240,8 +254,38 @@ impl Renderer<'_> {
                 .style(Style::default().bg(SURFACE)),
             header_columns[1],
         );
-        self.pane.area = parts[1];
-        self.draw_diff(f, parts[1]);
+        // A one-column gutter for the scrollbar, only while the file overflows.
+        let overflows = self.current().lines.len() > parts[1].height as usize;
+        let body = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Min(0),
+                Constraint::Length(u16::from(overflows).min(parts[1].width)),
+            ])
+            .split(parts[1]);
+        self.pane.area = body[0];
+        self.draw_diff(f, body[0]);
+        if overflows {
+            self.draw_scrollbar(f, body[1]);
+        }
+    }
+
+    fn draw_scrollbar(&self, f: &mut Frame, a: Rect) {
+        let lines = self.current().lines.len();
+        let mut state = ScrollbarState::new(lines)
+            .position(self.pane.scroll)
+            .viewport_content_length(a.height as usize);
+        f.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_symbol(Some("\u{2502}"))
+                .thumb_symbol("\u{2588}")
+                .track_style(Style::default().fg(BORDER).bg(BG))
+                .thumb_style(Style::default().fg(MUTED).bg(BG)),
+            a,
+            &mut state,
+        );
     }
 
     fn draw_diff(&mut self, f: &mut Frame, a: Rect) {
@@ -289,6 +333,7 @@ impl Renderer<'_> {
                 self.diff_line(&file.lines[sticky], sticky, a.width as usize),
                 3,
                 a.width as usize,
+                Some(WRAP_MARKER_COLUMN),
             ) {
                 lines.push(line);
                 map.push(Some(sticky));
@@ -299,8 +344,12 @@ impl Renderer<'_> {
                 break;
             }
             let l = &file.lines[p];
-            for line in wrap_code_line(self.diff_line(l, p, a.width as usize), 3, a.width as usize)
-            {
+            for line in wrap_code_line(
+                self.diff_line(l, p, a.width as usize),
+                3,
+                a.width as usize,
+                Some(WRAP_MARKER_COLUMN),
+            ) {
                 lines.push(line);
                 map.push(Some(p));
             }

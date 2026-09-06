@@ -8,6 +8,25 @@ use ratatui::{
     widgets::Block,
 };
 
+/// Share of the body the explorer may take before it stops growing.
+const SIDEBAR_SHARE_PERCENT: u16 = 28;
+const SIDEBAR_MIN_WIDTH: u16 = 22;
+const SIDEBAR_MAX_WIDTH: u16 = 40;
+/// Below this width the two panes cannot both stay readable, so only the
+/// focused one is shown and `-` / `Tab` swaps between them.
+const NARROW_BODY_WIDTH: u16 = 64;
+
+/// Explorer width for a body of `total` columns. Returns `0` when the explorer
+/// is hidden and `total` when it takes the screen on its own.
+pub(super) fn sidebar_width(total: u16, files_focused: bool) -> u16 {
+    if total < NARROW_BODY_WIDTH {
+        return if files_focused { total } else { 0 };
+    }
+    (total * SIDEBAR_SHARE_PERCENT / 100)
+        .clamp(SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH)
+        .min(total)
+}
+
 impl App {
     pub fn draw(&mut self, frame: &mut Frame) {
         let root = frame.area();
@@ -16,9 +35,11 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(8), Constraint::Length(1)])
             .split(root);
+        let focused = matches!(self.focus, Focus::Files | Focus::Filter);
+        let sidebar = sidebar_width(rows[0].width, focused);
         let body = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(36), Constraint::Min(50)])
+            .constraints([Constraint::Length(sidebar), Constraint::Min(0)])
             .split(rows[0]);
 
         self.file_tree.draw(
@@ -30,7 +51,8 @@ impl App {
                 reviewed_files: &self.session.reviewed_files,
                 current_file: self.diff_pane.file,
                 active_comment: self.active_comment_index(),
-                focused: matches!(self.focus, Focus::Files | Focus::Filter),
+                focused,
+                divided: body[1].width > 0,
             },
         );
         self.diff_pane.draw(
@@ -58,5 +80,23 @@ impl App {
             },
         );
         self.help.draw(frame, root);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidebar_grows_with_the_body_between_its_bounds() {
+        assert_eq!(sidebar_width(80, false), SIDEBAR_MIN_WIDTH);
+        assert_eq!(sidebar_width(120, false), 33);
+        assert_eq!(sidebar_width(240, false), SIDEBAR_MAX_WIDTH);
+    }
+
+    #[test]
+    fn narrow_bodies_show_only_the_focused_pane() {
+        assert_eq!(sidebar_width(50, true), 50);
+        assert_eq!(sidebar_width(50, false), 0);
     }
 }

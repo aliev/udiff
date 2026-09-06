@@ -63,9 +63,13 @@ impl TerminalRuntime {
                         apply_watch_event(&mut app, event);
                     }
                 }
+                #[cfg(feature = "watch")]
+                let watched = watch_source.as_ref().map(WatchSource::root);
+                #[cfg(not(feature = "watch"))]
+                let watched: Option<&Path> = None;
                 terminal.draw(|frame| match &mut app {
                     Some(app) => app.draw(frame),
-                    None => draw_waiting(frame),
+                    None => draw_waiting(frame, watched),
                 })?;
                 if event::poll(Duration::from_millis(100))? {
                     match event::read()? {
@@ -141,23 +145,45 @@ fn apply_watch_event(app: &mut Option<App>, event: WatchInputEvent) {
     }
 }
 
-fn draw_waiting(frame: &mut Frame) {
+fn draw_waiting(frame: &mut Frame, watched: Option<&Path>) {
     let area = frame.area();
     frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
+    let panel = waiting_panel(area);
+    let mut lines = vec![ratatui::text::Line::from(ratatui::text::Span::styled(
+        "\u{3bc}diff",
+        Style::default()
+            .fg(TEXT)
+            .add_modifier(ratatui::style::Modifier::BOLD),
+    ))];
+    if let Some(root) = watched {
+        lines.push(ratatui::text::Line::from(format!(
+            "watching {}",
+            compact_path(root, panel.width as usize)
+        )));
+    }
+    lines.push(ratatui::text::Line::from(
+        "waiting for changes \u{b7} q quit",
+    ));
     frame.render_widget(
-        Paragraph::new(vec![
-            ratatui::text::Line::from(ratatui::text::Span::styled(
-                "μdiff",
-                Style::default()
-                    .fg(TEXT)
-                    .add_modifier(ratatui::style::Modifier::BOLD),
-            )),
-            ratatui::text::Line::from("waiting for changes · q quit"),
-        ])
-        .alignment(Alignment::Center)
-        .style(Style::default().fg(MUTED).bg(BG)),
-        waiting_panel(area),
+        Paragraph::new(lines)
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(MUTED).bg(BG)),
+        panel,
     );
+}
+
+/// Keeps the tail of a watched path, which is the part that identifies it.
+fn compact_path(path: &Path, width: usize) -> String {
+    let full = path.display().to_string();
+    let budget = width.saturating_sub("watching ".len());
+    if full.chars().count() <= budget || budget <= 1 {
+        return full;
+    }
+    let tail = full
+        .chars()
+        .skip(full.chars().count() - (budget - 1))
+        .collect::<String>();
+    format!("\u{2026}{tail}")
 }
 
 fn waiting_panel(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
@@ -165,7 +191,7 @@ fn waiting_panel(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Fill(1),
-            Constraint::Length(2.min(area.height)),
+            Constraint::Length(3.min(area.height)),
             Constraint::Fill(1),
         ])
         .split(area)[1];
@@ -173,7 +199,7 @@ fn waiting_panel(area: ratatui::layout::Rect) -> ratatui::layout::Rect {
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Fill(1),
-            Constraint::Length(40.min(area.width)),
+            Constraint::Length(56.min(area.width)),
             Constraint::Fill(1),
         ])
         .split(row)[1]
@@ -296,7 +322,7 @@ mod tests {
     fn watch_mode_has_a_waiting_screen_before_the_first_batch() {
         let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
 
-        terminal.draw(draw_waiting).unwrap();
+        terminal.draw(|frame| draw_waiting(frame, None)).unwrap();
 
         let rendered = terminal
             .backend()

@@ -1,4 +1,4 @@
-use super::{BG, SELECT_BG, TAB_WIDTH, TEXT, editor::next_boundary};
+use super::{BG, MUTED, SELECT_BG, TAB_WIDTH, TEXT, editor::next_boundary};
 use crate::{
     comment::Comment,
     model::{DiffLine, FileDiff, LineKind},
@@ -8,6 +8,18 @@ use ratatui::{
     text::{Line, Span},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+/// Marks a row that continues the previous one after soft wrapping.
+pub(super) const WRAP_MARKER: &str = "\u{21aa}";
+
+/// `1 comment` / `2 comments`, so counters never read `1 comments`.
+pub(super) fn plural(count: usize, singular: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {singular}s")
+    }
+}
+
 pub(super) fn ordered(first: usize, second: usize) -> (usize, usize) {
     (first.min(second), first.max(second))
 }
@@ -109,6 +121,7 @@ pub(super) fn wrap_code_line(
     line: Line<'_>,
     code_start: usize,
     width: usize,
+    marker_column: Option<usize>,
 ) -> Vec<Line<'static>> {
     let mut spans = line.spans.into_iter();
     let prefix = spans
@@ -149,10 +162,7 @@ pub(super) fn wrap_code_line(
             let mut row = if index == 0 {
                 prefix.clone()
             } else {
-                vec![Span::styled(
-                    " ".repeat(prefix_width),
-                    Style::default().bg(background),
-                )]
+                continuation_prefix(prefix_width, background, marker_column)
             };
             row.extend(code);
             let rendered_width = row
@@ -168,6 +178,24 @@ pub(super) fn wrap_code_line(
             Line::from(row)
         })
         .collect()
+}
+
+/// Blank gutter for a soft-wrapped row, with a dim marker so a continuation
+/// never reads as a real diff line that simply has no line numbers.
+fn continuation_prefix(
+    prefix_width: usize,
+    background: Color,
+    marker_column: Option<usize>,
+) -> Vec<Span<'static>> {
+    let filler = |width: usize| Span::styled(" ".repeat(width), Style::default().bg(background));
+    match marker_column.filter(|column| *column < prefix_width) {
+        Some(column) => vec![
+            filler(column),
+            Span::styled(WRAP_MARKER, Style::default().fg(MUTED).bg(background)),
+            filler(prefix_width - column - 1),
+        ],
+        None => vec![filler(prefix_width)],
+    }
 }
 
 pub(super) fn wrapped_scroll(

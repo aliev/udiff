@@ -1,15 +1,20 @@
-use super::{BORDER, MUTED, SELECT_BG, SURFACE, TEXT, render::file_status_spans, search::fuzzy};
+use super::{
+    BORDER, MUTED, SELECT_BG, SURFACE, TEXT, render::file_status_spans, search::fuzzy,
+    view_helpers::plural,
+};
 use crate::{comment::Comment, model::FileDiff};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Modifier, Style},
+    symbols::border,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
 use std::collections::HashSet;
 use tui_tree_widget::{Tree, TreeItem, TreeState};
+use unicode_width::UnicodeWidthStr;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Target {
@@ -132,6 +137,9 @@ pub struct View<'a> {
     pub current_file: usize,
     pub active_comment: Option<usize>,
     pub focused: bool,
+    /// Whether the diff pane sits to the right, so the explorer knows if it
+    /// should draw a divider and join it into the header rule.
+    pub divided: bool,
 }
 
 impl FileTree {
@@ -251,6 +259,10 @@ impl FileTree {
     }
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, view: &View<'_>) {
+        self.area = Rect::default();
+        if area.width == 0 || area.height == 0 {
+            return;
+        }
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Length(2), Constraint::Min(0)])
@@ -268,22 +280,31 @@ impl FileTree {
         );
         self.sync_selection(&items, view.current_file);
 
-        let tree =
-            Tree::new(&items)
-                .expect("tree roots have unique identifiers")
-                .block(Block::default().borders(Borders::RIGHT).border_style(
-                    Style::default().fg(if view.focused { super::BLUE } else { BORDER }),
-                ))
-                .style(Style::default().bg(SURFACE))
-                .highlight_style(if view.focused {
-                    Style::default().bg(SELECT_BG).add_modifier(Modifier::BOLD)
-                } else {
-                    Style::default().bg(super::BG)
-                })
-                .highlight_symbol("▌")
-                .node_closed_symbol("▸")
-                .node_open_symbol("▾")
-                .node_no_children_symbol("");
+        let tree = Tree::new(&items)
+            .expect("tree roots have unique identifiers")
+            .block(
+                Block::default()
+                    .borders(if view.divided {
+                        Borders::RIGHT
+                    } else {
+                        Borders::NONE
+                    })
+                    .border_style(Style::default().fg(if view.focused {
+                        super::BLUE
+                    } else {
+                        BORDER
+                    })),
+            )
+            .style(Style::default().bg(SURFACE))
+            .highlight_style(if view.focused {
+                Style::default().bg(SELECT_BG).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().bg(super::BG)
+            })
+            .highlight_symbol("▌")
+            .node_closed_symbol("▸")
+            .node_open_symbol("▾")
+            .node_no_children_symbol("");
         frame.render_stateful_widget(tree, list_area, &mut self.state);
     }
 
@@ -315,40 +336,78 @@ impl FileTree {
     }
 
     fn draw_summary(&self, frame: &mut Frame, area: Rect, view: &View<'_>) {
-        let complete = !view.files.is_empty() && view.reviewed_files.len() == view.files.len();
-        let remaining = view.files.len().saturating_sub(view.reviewed_files.len());
-        let summary = if complete {
-            format!(
-                "  {} files · {} comments",
-                view.files.len(),
-                view.comments.len()
-            )
+        let total = view.files.len();
+        let reviewed = view.reviewed_files.len();
+        let complete = total > 0 && reviewed == total;
+        let comments = plural(view.comments.len(), "comment");
+        let inner = usize::from(area.width).saturating_sub(usize::from(view.divided));
+        let mut spans = Vec::new();
+        if complete {
+            spans.push(Span::styled(
+                " \u{2713} done",
+                Style::default()
+                    .fg(super::GREEN)
+                    .add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::styled(
+                format!(" \u{b7} {comments}"),
+                Style::default().fg(MUTED),
+            ));
         } else {
-            format!("  {remaining} left · {} comments", view.comments.len())
-        };
+            let label = format!("  {reviewed}/{total} \u{b7} {comments}");
+            spans.push(Span::raw(" "));
+            // The meter only gets the columns the counters do not need, so a
+            // narrow explorer drops it rather than truncating the numbers.
+            spans.extend(progress_spans(
+                reviewed,
+                total,
+                meter_width(inner, UnicodeWidthStr::width(label.as_str())),
+            ));
+            spans.push(Span::styled(label, Style::default().fg(MUTED)));
+        }
         frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    if complete { " done" } else { " review" },
-                    Style::default()
-                        .fg(if complete { super::GREEN } else { TEXT })
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(summary, Style::default().fg(MUTED)),
-            ]))
-            .block(
-                Block::default()
-                    .borders(Borders::RIGHT | Borders::BOTTOM)
-                    .border_style(Style::default().fg(if view.focused {
-                        super::BLUE
-                    } else {
-                        BORDER
-                    })),
-            )
-            .style(Style::default().bg(SURFACE)),
+            Paragraph::new(Line::from(spans))
+                .block(
+                    Block::default()
+                        .borders(if view.divided {
+                            Borders::RIGHT | Borders::BOTTOM
+                        } else {
+                            Borders::BOTTOM
+                        })
+                        // Join the divider into the header rule instead of
+                        // closing it off with a stray corner.
+                        .border_set(border::Set {
+                            bottom_right: "\u{252c}",
+                            ..border::PLAIN
+                        })
+                        .border_style(Style::default().fg(if view.focused {
+                            super::BLUE
+                        } else {
+                            BORDER
+                        })),
+                )
+                .style(Style::default().bg(SURFACE)),
             area,
         );
     }
+}
+
+/// Columns left for the review meter once the counters have taken theirs.
+/// Returns `0` when what remains is too small to read as a meter.
+fn meter_width(inner: usize, label_width: usize) -> usize {
+    let free = inner.saturating_sub(label_width + 1).min(10);
+    if free < 3 { 0 } else { free }
+}
+
+fn progress_spans(reviewed: usize, total: usize, width: usize) -> Vec<Span<'static>> {
+    let filled = (reviewed * width).checked_div(total).unwrap_or(0);
+    vec![
+        Span::styled("\u{2501}".repeat(filled), Style::default().fg(super::GREEN)),
+        Span::styled(
+            "\u{2501}".repeat(width - filled),
+            Style::default().fg(BORDER),
+        ),
+    ]
 }
 
 fn file_item(file: usize, view: &View<'_>) -> TreeItem<'static, NodeId> {
@@ -468,6 +527,7 @@ mod tests {
             current_file: 0,
             active_comment: None,
             focused: true,
+            divided: true,
         }
     }
 

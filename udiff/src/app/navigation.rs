@@ -90,6 +90,7 @@ impl App {
             current_file: self.diff_pane.file,
             active_comment: self.active_comment_index(),
             focused: true,
+            divided: true,
         };
         match self.file_tree.search(key, &view) {
             SearchAction::Cancel => self.focus = self.search_return_focus,

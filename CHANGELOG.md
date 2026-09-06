@@ -15,6 +15,9 @@ All notable changes to μdiff are documented in this file. The project uses
   plain text.
 - Code suggestions for contiguous new-side diff ranges, with syntax-highlighted
   inline editing, rendering, and clipboard export.
+- Responsive layout that scales the sidebar with the terminal and shows a
+  single pane below 64 columns, a review meter, a diff scrollbar, soft-wrap
+  markers, and a scrollable keyboard help.
 - Watch mode behind the default `watch` feature, backed by `uwatch`.
 - `uwatch`, a standalone filesystem watcher that groups changes into
   quiet-period batches and emits unified diffs.

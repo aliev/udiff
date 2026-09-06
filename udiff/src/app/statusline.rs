@@ -17,6 +17,9 @@ use ratatui::{
 use std::time::{Duration, Instant};
 use unicode_width::UnicodeWidthStr;
 
+/// Below this width the hints are trimmed so the mode badge still fits.
+const COMPACT_WIDTH: usize = 72;
+
 #[derive(Default)]
 pub struct Statusline {
     notice: Option<(String, Instant)>,
@@ -82,29 +85,49 @@ impl Statusline {
                 _ if active_comment.is_some() => (" COMMENT ", COMMENT),
                 _ => (" NORMAL ", BLUE),
             };
+            let compact = width < COMPACT_WIDTH;
             let right = if let Some((message, shown_at)) = &self.notice
                 && shown_at.elapsed() < Duration::from_secs(4)
             {
-                format!(" {message} · ? help ")
+                if compact {
+                    format!(" {message} ")
+                } else {
+                    format!(" {message} · ? help ")
+                }
             } else {
                 let review_complete = !session.files.is_empty()
                     && session.reviewed_files.len() == session.files.len();
-                let state: String = match focus {
-                    Focus::Files => " j/k navigate · Space reviewed ".into(),
-                    Focus::Editor => " Enter save · Shift+Enter newline · Esc cancel ".into(),
-                    _ if pane.range_anchor.is_some() => {
-                        " j/k extend · Enter comment · r suggest · c cancel ".into()
-                    }
-                    _ if pane.visual_mode.is_some() => {
-                        " h/j/k/l select · y copy · Esc cancel ".into()
-                    }
-                    _ if active_comment.is_some() => {
-                        " Enter edit · [ / ] browse comments · Space reviewed ".into()
-                    }
-                    _ if review_complete => " ✓ Review complete · Shift+Y copy comments ".into(),
-                    _ if session.reviewed_files.contains(&pane.file) => {
-                        " Space reopen review · [/] comments · ? help ".into()
-                    }
+                // Each state offers a full hint and a trimmed one for narrow
+                // terminals, where the hint would otherwise crowd out the mode.
+                let (full, short): (String, String) = match focus {
+                    Focus::Files => (
+                        " j/k navigate · Space reviewed ".into(),
+                        " j/k · Space ".into(),
+                    ),
+                    Focus::Editor => (
+                        " Enter save · Shift+Enter newline · Esc cancel ".into(),
+                        " Enter save · Esc ".into(),
+                    ),
+                    _ if pane.range_anchor.is_some() => (
+                        " j/k extend · Enter comment · r suggest · c cancel ".into(),
+                        " Enter comment · r suggest ".into(),
+                    ),
+                    _ if pane.visual_mode.is_some() => (
+                        " h/j/k/l select · y copy · Esc cancel ".into(),
+                        " y copy · Esc ".into(),
+                    ),
+                    _ if active_comment.is_some() => (
+                        " Enter edit · [ / ] browse comments · Space reviewed ".into(),
+                        " Enter edit · [ / ] ".into(),
+                    ),
+                    _ if review_complete => (
+                        " ✓ Review complete · Shift+Y copy comments ".into(),
+                        " ✓ complete · Shift+Y ".into(),
+                    ),
+                    _ if session.reviewed_files.contains(&pane.file) => (
+                        " Space reopen review · [/] comments · ? help ".into(),
+                        " Space reopen · ? help ".into(),
+                    ),
                     _ => {
                         let line = &pane.active_lines(&session.files)[pane.cursor];
                         let location = match (line.old, line.new) {
@@ -113,12 +136,15 @@ impl Statusline {
                             _ => "hunk".into(),
                         };
                         let percent = (pane.cursor + 1) * 100 / current.lines.len().max(1);
-                        format!(
-                            " c comment · r suggest · Space reviewed · {location} · {percent}% "
+                        (
+                            format!(
+                                " c comment · r suggest · Space reviewed · {location} · {percent}% "
+                            ),
+                            format!(" {location} · {percent}% "),
                         )
                     }
                 };
-                state
+                if compact { short } else { full }
             };
             (
                 {

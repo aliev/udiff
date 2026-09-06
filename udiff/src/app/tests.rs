@@ -318,10 +318,12 @@ fn tab_moves_focus_accent_between_panels() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+    // The explorer divider sits on its last column, wherever the layout put it.
+    let divider = super::view::sidebar_width(100, false) - 1;
     terminal.draw(|frame| app.draw(frame)).unwrap();
     assert_eq!(terminal.backend().buffer().cell((50, 1)).unwrap().fg, BLUE);
     assert_eq!(
-        terminal.backend().buffer().cell((35, 4)).unwrap().fg,
+        terminal.backend().buffer().cell((divider, 4)).unwrap().fg,
         BORDER
     );
 
@@ -331,7 +333,10 @@ fn tab_moves_focus_accent_between_panels() {
         terminal.backend().buffer().cell((50, 1)).unwrap().fg,
         BORDER
     );
-    assert_eq!(terminal.backend().buffer().cell((35, 4)).unwrap().fg, BLUE);
+    assert_eq!(
+        terminal.backend().buffer().cell((divider, 4)).unwrap().fg,
+        BLUE
+    );
 }
 
 #[test]
@@ -742,23 +747,25 @@ fn tab_indented_go_lines_keep_their_indent_and_cursor_when_moving_down() {
     let diff = "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1,2 @@\n+\tif ready {\n+\t\treturn\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
+    // First code column: the explorer, then the diff gutter.
+    let code = super::view::sidebar_width(100, false) + 13;
 
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let first_line = terminal.backend().buffer();
-    assert_eq!(first_line.cell((49, 3)).unwrap().symbol(), " ");
-    assert_eq!(first_line.cell((49, 3)).unwrap().bg, TEXT);
+    assert_eq!(first_line.cell((code, 3)).unwrap().symbol(), " ");
+    assert_eq!(first_line.cell((code, 3)).unwrap().bg, TEXT);
     assert!(
-        (53..58).any(|x| first_line.cell((x, 3)).unwrap().symbol() == "i"),
+        (code + 4..code + 9).any(|x| first_line.cell((x, 3)).unwrap().symbol() == "i"),
         "the tab should create visible indentation before the Go code"
     );
 
     app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let second_line = terminal.backend().buffer();
-    assert_eq!(second_line.cell((49, 4)).unwrap().symbol(), " ");
-    assert_eq!(second_line.cell((49, 4)).unwrap().bg, TEXT);
+    assert_eq!(second_line.cell((code, 4)).unwrap().symbol(), " ");
+    assert_eq!(second_line.cell((code, 4)).unwrap().bg, TEXT);
     assert!(
-        (57..66).any(|x| second_line.cell((x, 4)).unwrap().symbol() == "r"),
+        (code + 8..code + 17).any(|x| second_line.cell((x, 4)).unwrap().symbol() == "r"),
         "two tabs should create a larger visible indent"
     );
 }
@@ -971,7 +978,7 @@ fn space_marks_files_reviewed_and_advances_to_the_next_unreviewed_file() {
         .collect::<String>();
     assert!(rendered.contains("a.rs"));
     assert!(rendered.contains('✓'));
-    assert!(rendered.contains("1 left"));
+    assert!(rendered.contains("1/2"));
     assert!(rendered.contains("0 comments"));
 
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
@@ -986,7 +993,7 @@ fn space_marks_files_reviewed_and_advances_to_the_next_unreviewed_file() {
         .map(|cell| cell.symbol())
         .collect::<String>();
     assert!(completed.contains("done"));
-    assert!(completed.contains("2 files"));
+    assert!(completed.contains("0 comments"));
     assert!(completed.contains("Review complete"));
 
     assert_eq!(app.diff_pane.file, 1);

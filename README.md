@@ -122,9 +122,13 @@ unified diff—not `delta` output—into μdiff.
 
 ## UI
 
-- GitHub-style folder/file sidebar with fuzzy filtering.
+- GitHub-style folder/file sidebar with fuzzy filtering and a review meter.
+- Responsive layout: the sidebar scales with the terminal, and below 64 columns
+  only the focused pane is shown, with `-` or `Tab` swapping between them.
 - Separate old/new gutters and per-hunk syntax highlighting.
 - Full-row add/remove backgrounds, cursor, and visual ranges.
+- Soft-wrapped lines are marked with `↪` so a continuation never reads as code.
+- A scrollbar appears while the current file overflows the viewport.
 - Inline multiline comments attached to lines or ranges.
 - Syntax-highlighted code suggestions that replace contiguous new-side or
   context lines.
@@ -147,7 +151,7 @@ watcher integration. The repository root is a virtual Cargo workspace, so
 | Key | Action |
 |---|---|
 | `-`, `Tab` | toggle focus between sidebar and diff |
-| `?` | open keyboard help |
+| `?` | open keyboard help; `j/k` scrolls it on short terminals |
 | `j/k`, arrows | move |
 | `G`, `gg`, `42gg` | end/start/jump to line |
 | `c`, then `j/k` or arrows | select diff lines for review |
