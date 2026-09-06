@@ -36,6 +36,9 @@ const SPLIT_PREFIX_WIDTH: usize = 8;
 const EDITOR_PREFIX_WIDTH: usize = 13;
 const EDITOR_TEXT_INSET: usize = 2;
 const SCROLL_MARGIN_ROWS: usize = 3;
+/// Columns kept ahead of the cursor when the view scrolls back leftwards, so
+/// walking left reveals text rather than pinning the cursor to the edge.
+const SCROLL_MARGIN_COLUMNS: usize = 8;
 
 #[cfg(test)]
 impl DiffPane {
@@ -331,7 +334,14 @@ impl Renderer<'_> {
         let line = &self.active_lines()[self.pane.cursor];
         let column = expanded_character_column(&line.text, self.pane.visual_col);
         if column < self.pane.h_scroll {
-            self.pane.h_scroll = column;
+            // Sitting the view exactly on the cursor hides the indentation
+            // that says where the line begins, which is the whole point of
+            // going to its first non-blank. Show the start when it is free.
+            self.pane.h_scroll = if column < available {
+                0
+            } else {
+                column.saturating_sub(SCROLL_MARGIN_COLUMNS)
+            };
         } else if column >= self.pane.h_scroll + available {
             self.pane.h_scroll = column + 1 - available;
         }

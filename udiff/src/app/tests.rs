@@ -2178,3 +2178,23 @@ fn a_deletion_with_nothing_in_its_place_still_refuses() {
     assert_eq!(app.focus, Focus::Diff, "focus stays on the diff");
     assert!(app.session.comments.is_empty(), "and nothing is recorded");
 }
+
+#[test]
+fn going_back_to_the_start_of_a_line_shows_its_start() {
+    // Eight spaces of indent: after walking to the end and back, the view has
+    // to show them, not sit the cursor on the left edge with them scrolled off.
+    let indented = "        // a comment long enough that the line has to be cut somewhere";
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+{indented}\n");
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    let mut terminal = Terminal::new(TestBackend::new(60, 8)).unwrap();
+
+    app.key(KeyEvent::new(KeyCode::Char('$'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(app.diff_pane.h_scroll > 0, "the end is off to the right");
+
+    app.key(KeyEvent::new(KeyCode::Char('^'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.diff_pane.h_scroll, 0, "and the start is back on screen");
+}
