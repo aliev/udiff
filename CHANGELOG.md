@@ -3,6 +3,14 @@
 All notable changes to μdiff are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- Readline motions in the comment and suggestion editor: `Ctrl+A` / `Ctrl+E`
+  move to the start and end of the line, `Ctrl+K` / `Ctrl+U` kill to the end
+  and to the start. `Home` and `End` follow the same rule.
+
 ## [0.1.0] - 2026-09-06
 
 ### Added
@@ -25,4 +33,5 @@ All notable changes to μdiff are documented in this file. The project uses
   quiet-period batches and emits unified diffs.
 - Linux, macOS, and Windows CI builds.
 
+[Unreleased]: https://github.com/aliev/udiff/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/aliev/udiff/releases/tag/v0.1.0

@@ -12,6 +12,17 @@ pub(super) fn next_boundary(text: &str, cursor: usize) -> Option<usize> {
         .map(|character| cursor + character.len_utf8())
 }
 
+/// Byte offsets of the logical line the cursor sits on, its break excluded.
+/// Logical, not visual: `vertical_cursor` already moves by `\n` rather than by
+/// wrapped rows, and the two would disagree otherwise.
+pub(super) fn line_bounds(text: &str, cursor: usize) -> (usize, usize) {
+    let start = text[..cursor].rfind('\n').map_or(0, |index| index + 1);
+    let end = text[cursor..]
+        .find('\n')
+        .map_or(text.len(), |offset| cursor + offset);
+    (start, end)
+}
+
 pub(super) fn vertical_cursor(text: &str, cursor: usize, down: bool) -> usize {
     let line_start = text[..cursor].rfind('\n').map_or(0, |index| index + 1);
     let column = text[line_start..cursor].chars().count();
@@ -41,6 +52,20 @@ pub(super) fn vertical_cursor(text: &str, cursor: usize, down: bool) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_line_ends_at_its_break_not_at_the_end_of_the_text() {
+        // "alpha\nβeta\ngamma": β is two bytes, so the middle line is 6..11.
+        let text = "alpha\nβeta\ngamma";
+        assert_eq!(line_bounds(text, 8), (6, 11));
+        assert_eq!(line_bounds(text, 0), (0, 5));
+        assert_eq!(line_bounds(text, 12), (12, 17));
+    }
+
+    #[test]
+    fn an_empty_line_starts_and_ends_in_the_same_place() {
+        assert_eq!(line_bounds("a\n\nb", 2), (2, 2));
+    }
 
     #[test]
     fn cursor_operations_stay_on_utf8_boundaries() {

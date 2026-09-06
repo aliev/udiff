@@ -1,4 +1,4 @@
-use super::editor::{next_boundary, previous_boundary, vertical_cursor};
+use super::editor::{line_bounds, next_boundary, previous_boundary, vertical_cursor};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +42,7 @@ impl CommentEditor {
     }
 
     pub fn event(&mut self, key: KeyEvent) -> Action {
+        let control = key.modifiers.contains(KeyModifiers::CONTROL);
         match key.code {
             KeyCode::Esc => return Action::Cancel,
             KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
@@ -52,6 +53,26 @@ impl CommentEditor {
             KeyCode::Char('j') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.text.insert(self.cursor, '\n');
                 self.cursor += 1;
+            }
+            KeyCode::Char('a') if control => self.cursor = line_bounds(&self.text, self.cursor).0,
+            KeyCode::Home => self.cursor = line_bounds(&self.text, self.cursor).0,
+            KeyCode::Char('e') if control => self.cursor = line_bounds(&self.text, self.cursor).1,
+            KeyCode::End => self.cursor = line_bounds(&self.text, self.cursor).1,
+            KeyCode::Char('k') if control => {
+                let (_, line_end) = line_bounds(&self.text, self.cursor);
+                // Already at the break: there is nothing left on this line to
+                // kill but the break itself, so the next line joins this one.
+                let end = if line_end == self.cursor {
+                    next_boundary(&self.text, self.cursor).unwrap_or(line_end)
+                } else {
+                    line_end
+                };
+                self.text.drain(self.cursor..end);
+            }
+            KeyCode::Char('u') if control => {
+                let (line_start, _) = line_bounds(&self.text, self.cursor);
+                self.text.drain(line_start..self.cursor);
+                self.cursor = line_start;
             }
             KeyCode::Backspace => {
                 if let Some(previous) = previous_boundary(&self.text, self.cursor) {
@@ -88,6 +109,77 @@ impl CommentEditor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn editing(text: &str, cursor: usize) -> CommentEditor {
+        let mut editor = CommentEditor::default();
+        editor.open(text.into(), 0, None, Mode::Comment);
+        editor.cursor = cursor;
+        editor
+    }
+
+    fn control(editor: &mut CommentEditor, character: char) {
+        editor.event(KeyEvent::new(
+            KeyCode::Char(character),
+            KeyModifiers::CONTROL,
+        ));
+    }
+
+    #[test]
+    fn line_motions_stop_at_the_line_the_cursor_is_on() {
+        let mut editor = editing("alpha\nβeta\ngamma", 8);
+        control(&mut editor, 'a');
+        assert_eq!(editor.cursor, 6);
+        control(&mut editor, 'e');
+        assert_eq!(editor.cursor, 11, "not the end of the whole text");
+
+        editor.cursor = 8;
+        editor.event(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        assert_eq!(editor.cursor, 6);
+        editor.event(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        assert_eq!(editor.cursor, 11);
+    }
+
+    #[test]
+    fn killing_forward_and_back_leaves_the_other_lines_alone() {
+        let mut editor = editing("alpha\nβeta\ngamma", 8);
+        control(&mut editor, 'k');
+        assert_eq!(editor.text, "alpha\nβ\ngamma");
+        assert_eq!(editor.cursor, 8);
+
+        let mut editor = editing("alpha\nβeta\ngamma", 8);
+        control(&mut editor, 'u');
+        assert_eq!(editor.text, "alpha\neta\ngamma");
+        assert_eq!(editor.cursor, 6);
+    }
+
+    #[test]
+    fn killing_at_the_end_of_a_line_pulls_the_next_one_up() {
+        let mut editor = editing("alpha\nβeta", 11);
+        control(&mut editor, 'k');
+        assert_eq!(
+            editor.text, "alpha\nβeta",
+            "nothing follows, so nothing dies"
+        );
+
+        let mut editor = editing("alpha\nβeta", 5);
+        control(&mut editor, 'k');
+        assert_eq!(editor.text, "alphaβeta");
+        assert_eq!(editor.cursor, 5);
+    }
+
+    #[test]
+    fn a_line_can_be_cleared_and_retyped() {
+        // The reason these exist: replacing a prefilled suggestion should not
+        // take thirty presses of Backspace.
+        let mut editor = editing(
+            "            .highlight_style(highlight_style(view.focused))",
+            59,
+        );
+        control(&mut editor, 'a');
+        control(&mut editor, 'k');
+        assert_eq!(editor.text, "");
+        assert_eq!(editor.cursor, 0);
+    }
 
     #[test]
     fn editor_owns_utf8_safe_input_and_reports_intent() {

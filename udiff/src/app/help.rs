@@ -148,6 +148,8 @@ fn help_lines() -> Vec<Line<'static>> {
         Line::default(),
         help_line("EDITOR", "Enter", "save comment or suggestion"),
         help_line("", "Shift+Enter", "insert newline"),
+        help_line("", "Ctrl+A / Ctrl+E", "start / end of line"),
+        help_line("", "Ctrl+K / Ctrl+U", "kill to end / start of line"),
         help_line("", "Esc", "cancel"),
         Line::default(),
         help_line("VIEWER", "q", "quit"),
