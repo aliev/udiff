@@ -899,18 +899,6 @@ fn r_opens_a_prefilled_suggestion_for_new_side_lines() {
 }
 
 #[test]
-fn suggestion_rejects_old_side_lines_without_opening_the_editor() {
-    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
-    let mut app = App::new(parse_unified_diff(diff), Vec::new());
-    app.diff_pane.cursor = 1;
-
-    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
-
-    assert_eq!(app.focus, Focus::Diff);
-    assert!(app.session.comments.is_empty());
-}
-
-#[test]
 fn empty_suggestion_is_kept_and_enter_reopens_it_in_suggestion_mode() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -0,0 +1 @@\n+remove_me();\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
@@ -2152,4 +2140,41 @@ fn a_new_revision_does_not_drop_the_mode_you_are_reading_in() {
         "the batch that landed kept side by side"
     );
     assert!(!app.diff_pane.wrap, "and kept wrapping off with it");
+}
+
+#[test]
+fn suggesting_on_a_removal_steps_to_what_replaced_it() {
+    let diff =
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old line\n+new line\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    assert_eq!(app.diff_pane.cursor, 1, "the cursor starts on the removal");
+
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+
+    assert_eq!(app.diff_pane.cursor, 2, "and moves to the addition");
+    assert_eq!(
+        app.comment_editor.text, "new line",
+        "the form is prefilled with what is on disk, not with what was"
+    );
+}
+
+#[test]
+fn commenting_on_a_removal_stays_where_it_is() {
+    // A note about a line that was taken out belongs on that line.
+    let diff =
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old line\n+new line\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.cursor, 1);
+}
+
+#[test]
+fn a_deletion_with_nothing_in_its_place_still_refuses() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,1 @@\n-gone\n ctx\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.cursor, 1, "there is nowhere to step to");
+    assert!(app.comment_editor.anchor.is_none(), "and no form opens");
+    assert_eq!(app.focus, Focus::Diff, "focus stays on the diff");
+    assert!(app.session.comments.is_empty(), "and nothing is recorded");
 }

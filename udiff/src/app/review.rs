@@ -116,6 +116,12 @@ impl App {
     }
 
     pub(super) fn open_suggestion_editor(&mut self) {
+        // On a removal with nothing selected, suggest against what replaced it
+        // rather than refusing. An explicit range is the reviewer's own choice
+        // and is left alone.
+        if self.diff_pane.range_anchor.is_none() {
+            self.diff_pane.step_to_replacement();
+        }
         let range = self.selected_bounds();
         let existing = self
             .anchored_suggestion_at(self.diff_pane.cursor)

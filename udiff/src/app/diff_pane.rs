@@ -91,6 +91,27 @@ impl DiffPane {
         }
     }
 
+    /// Steps from a removal to the addition that replaced it, if there is one.
+    /// A suggestion rewrites what is on disk, and what is on disk is the new
+    /// side — so offering to write one is more use than refusing.
+    pub fn step_to_replacement(&mut self) -> bool {
+        let Some(row) = self.rows.get(self.row_of(self.cursor)) else {
+            return false;
+        };
+        let (left, right) = (row.left, row.right);
+        // A context line sits on both sides; it is already the new side.
+        if left != Some(self.cursor) || right == Some(self.cursor) {
+            return false;
+        }
+        let Some(addition) = right else {
+            return false;
+        };
+        self.cursor = addition;
+        self.side = Side::Right;
+        self.visual_col = 0;
+        true
+    }
+
     /// How the diff is being read belongs to the session, not to a revision.
     /// A batch of edits landing must not quietly drop the mode you are in.
     pub fn adopt_view(&mut self, previous: &Self) {
