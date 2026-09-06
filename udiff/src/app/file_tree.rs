@@ -296,13 +296,7 @@ impl FileTree {
                     })),
             )
             .style(Style::default().fg(theme().muted).bg(theme().surface))
-            .highlight_style(if view.focused {
-                theme()
-                    .selected(Style::default())
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().bg(theme().bg)
-            })
+            .highlight_style(highlight_style(view.focused))
             .highlight_symbol("▌")
             // Every expander is two cells wide, glyph plus its space, so a
             // folder and a file open the same distance from their label and a
@@ -395,6 +389,20 @@ impl FileTree {
                 .style(Style::default().bg(theme().surface)),
             area,
         );
+    }
+}
+
+/// The row the tree cursor is on. Only a focused explorer paints a
+/// background: an unfocused row used to take the canvas colour, which recedes
+/// from the panel in the dark palette but stands out as a bright band in the
+/// light one. The `▌` symbol and the bold filename mark the row in both.
+fn highlight_style(focused: bool) -> Style {
+    if focused {
+        theme()
+            .selected(Style::default())
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
     }
 }
 
@@ -553,6 +561,23 @@ mod tests {
             focused: true,
             divided: true,
         }
+    }
+
+    #[test]
+    fn an_unfocused_tree_row_never_paints_over_the_panel() {
+        use crate::theme::{Mode, Palette};
+        assert_eq!(highlight_style(false).bg, None);
+        assert_eq!(highlight_style(true).bg, Some(theme().select_bg));
+        // The canvas colour is only a recess in one palette, never both, which
+        // is why an unfocused row must not reach for it.
+        let brightness = |colour| match colour {
+            ratatui::style::Color::Rgb(r, g, b) => u32::from(r) + u32::from(g) + u32::from(b),
+            other => panic!("expected an RGB colour, got {other:?}"),
+        };
+        let light = Palette::for_mode(Mode::Light);
+        let dark = Palette::for_mode(Mode::Dark);
+        assert!(brightness(light.bg) > brightness(light.surface));
+        assert!(brightness(dark.bg) < brightness(dark.surface));
     }
 
     #[test]
