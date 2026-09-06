@@ -5,11 +5,28 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
+## [0.2.0] - Unreleased
+
 ### Added
 
 - `s` shows the diff side by side, with each removal level with the addition
   that replaced it. Wrapping turns off while it is on, because aligned rows
   cost one screen row each.
+
+### Changed
+
+- `r` on a removed line moves to the addition that replaced it and offers the
+  suggestion there, rather than refusing. A suggestion rewrites what is on
+  disk, and what is on disk is the new side. A range you selected yourself is
+  left alone, and commenting still stays on the line it is given.
+
+### Fixed
+
+- Watch mode dropped how you were reading the diff — wrapping, side by side,
+  and the horizontal offset — every time a batch of edits landed, and moving
+  between revisions restored whatever mode each one had been left in.
+- `^` scrolled a line's indentation off the screen, hiding where the line
+  began at the moment of asking to go there.
 
 ## [0.1.3] - 2026-09-07
 
@@ -78,7 +95,8 @@ All notable changes to μdiff are documented in this file. The project uses
   quiet-period batches and emits unified diffs.
 - Linux, macOS, and Windows CI builds.
 
-[Unreleased]: https://github.com/aliev/udiff/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/aliev/udiff/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/aliev/udiff/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/aliev/udiff/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/aliev/udiff/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/aliev/udiff/compare/v0.1.0...v0.1.1
