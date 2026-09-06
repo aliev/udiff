@@ -58,7 +58,7 @@ impl WatchHandle {
             .root
             .canonicalize()
             .with_context(|| format!("cannot open {}", options.root.display()))?;
-        let excluded_journal = root.join(".diffwatch");
+        let excluded_journal = root.join(".uwatch");
         let baseline = Snapshot::capture_with_options(
             &root,
             &excluded_journal,
@@ -165,7 +165,7 @@ impl Worker {
             );
             let current = match Snapshot::capture_with_options(
                 &self.root,
-                &self.root.join(".diffwatch"),
+                &self.root.join(".uwatch"),
                 capture_options,
             ) {
                 Ok(snapshot) => snapshot,
@@ -257,6 +257,6 @@ mod tests {
         };
         assert!(unified_diff.contains("b/first.txt"));
         assert!(unified_diff.contains("b/second.txt"));
-        assert!(!directory.path().join(".diffwatch").exists());
+        assert!(!directory.path().join(".uwatch").exists());
     }
 }

@@ -4,7 +4,7 @@
 three boundaries:
 
 ```text
-stdin / Diffwatch (`watch` feature)
+stdin / Uwatch (`watch` feature)
        │
        ▼
  unified diff ──► model ──► App::update ──► component state

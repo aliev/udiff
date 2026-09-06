@@ -47,7 +47,7 @@ impl Default for CaptureOptions {
 
 impl Snapshot {
     /// Reads a complete snapshot. The journal directory is always excluded so
-    /// diffwatch cannot observe its own writes.
+    /// uwatch cannot observe its own writes.
     pub fn capture(root: &Path, journal_dir: &Path) -> Result<Self> {
         Self::capture_with_options(root, journal_dir, CaptureOptions::default())
     }
@@ -66,7 +66,7 @@ impl Snapshot {
             .git_global(false)
             .git_exclude(false)
             // `.gitignore` is useful configuration even when Git itself is
-            // absent. This is the normal mode for diffwatch.
+            // absent. This is the normal mode for uwatch.
             .require_git(false)
             .filter_entry(move |entry| {
                 entry
@@ -241,7 +241,7 @@ mod tests {
     #[test]
     fn capture_never_includes_its_own_journal() {
         let directory = tempdir().unwrap();
-        let journal = directory.path().join(".diffwatch");
+        let journal = directory.path().join(".uwatch");
         fs::create_dir(&journal).unwrap();
         fs::write(directory.path().join("source.txt"), "source").unwrap();
         fs::write(journal.join("0001.diff"), "journal").unwrap();

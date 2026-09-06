@@ -44,7 +44,7 @@ pub fn read_batch(journal_root: &Path, session: Option<&str>, number: u64) -> Re
             list_sessions(journal_root)?
                 .into_iter()
                 .next()
-                .context("no diffwatch sessions found")?
+                .context("no uwatch sessions found")?
                 .directory
         }
     };

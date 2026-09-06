@@ -1,5 +1,5 @@
 [package]
-name = "diffwatch"
+name = "uwatch"
 version = "0.1.0"
 edition = "2021"
 description = "Filesystem change history grouped into quiet-period batches"

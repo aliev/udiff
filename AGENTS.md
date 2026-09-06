@@ -5,7 +5,7 @@ This file provides guidance for coding agents working in this repository.
 ## Project Overview
 
 μdiff is a small Rust terminal UI for viewing unified diffs received on
-standard input. Its `--watch` mode uses the Diffwatch library to observe a
+standard input. Its `--watch` mode uses the Uwatch library to observe a
 directory in memory and keeps independent review state for each completed
 batch. It presents a GitHub-inspired diff, lets the user attach temporary
 comments or code suggestions to lines or ranges, and copies them as compact
@@ -16,7 +16,7 @@ of Git repositories or review persistence formats.
 
 ## Repository Structure
 
-- `diffwatch/`: independently useful secondary package providing filesystem
+- `uwatch/`: independently useful secondary package providing filesystem
   observation and the public watcher API used by the optional `watch` feature.
 - `src/main.rs`: composition root and exit behavior.
 - `src/input.rs`: the `DiffSource` boundary and stdin implementation.
@@ -75,14 +75,14 @@ cat changes.patch | cargo run --release
 - Rendering state belongs to its concrete component under `app/`.
 - Input adapters belong in `input.rs`; terminal lifecycle belongs in
   `terminal.rs`.
-- Keep the integration one-way: Diffwatch must not depend on μdiff, and μdiff
-  must use Diffwatch's public watcher API rather than its journal layout.
+- Keep the integration one-way: Uwatch must not depend on μdiff, and μdiff must
+  use Uwatch's public watcher API rather than its journal layout.
 
 Do not add Git subprocess behavior, repository discovery, persistent review
 formats, agent protocols, roles, replies, or authors. Review items exist only
 for the current process and `Shift+Y` exports them as plain text for the
 clipboard.
-Keep the Diffwatch watcher adapter in `input.rs` and its review-state
+Keep the Uwatch watcher adapter in `input.rs` and its review-state
 transitions in `app.rs`.
 
 ## UX Invariants

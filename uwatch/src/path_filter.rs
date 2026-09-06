@@ -65,8 +65,7 @@ mod tests {
         fs::write(directory.path().join(".gitignore"), "/target/\n").unwrap();
         let target = directory.path().join("target");
         let source = directory.path().join("src/main.rs");
-        let filter =
-            PathFilter::new(directory.path(), &directory.path().join(".diffwatch")).unwrap();
+        let filter = PathFilter::new(directory.path(), &directory.path().join(".uwatch")).unwrap();
 
         assert!(!filter.includes(&target.join("debug/output")));
         assert!(filter.includes(&source));
@@ -84,8 +83,7 @@ mod tests {
     #[test]
     fn always_excludes_git_metadata_but_not_similarly_named_files() {
         let directory = tempdir().unwrap();
-        let filter =
-            PathFilter::new(directory.path(), &directory.path().join(".diffwatch")).unwrap();
+        let filter = PathFilter::new(directory.path(), &directory.path().join(".uwatch")).unwrap();
 
         assert!(!filter.includes(&directory.path().join(".git/index")));
         assert!(!filter.includes(&directory.path().join(".git/refs/heads/main")));

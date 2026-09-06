@@ -38,8 +38,8 @@ powershell -ExecutionPolicy Bypass -c "irm https://github.com/aliev/udiff/releas
 cargo install --path . --locked
 ```
 
-The default `watch` feature adds the optional Diffwatch integration. To build
-μdiff as a standalone stdin diff viewer without the Diffwatch dependency:
+The default `watch` feature adds the optional Uwatch integration. To build
+μdiff as a standalone stdin diff viewer without the Uwatch dependency:
 
 ```bash
 cargo install --path . --locked --no-default-features
@@ -81,7 +81,7 @@ git diff | udiff --watch .
 ```
 
 Watch mode is in-memory and does not create a journal or require Git. Each
-quiet-period batch from Diffwatch appears as a revision in μdiff. μdiff
+quiet-period batch from Uwatch appears as a revision in μdiff. μdiff
 follows new revisions while you are viewing the latest one. Use `{` and `}` to
 move between older and newer revisions. Cursor, review items, and reviewed-file
 state are retained independently for every revision. `Shift+Y` copies comments
@@ -137,7 +137,7 @@ OSC 52 clipboard access.
 
 ## Workspace
 
-μdiff is the root package. [`diffwatch/`](diffwatch/README.md) is an
+μdiff is the root package. [`uwatch/`](uwatch/README.md) is an
 independently useful secondary package that provides the optional in-memory
 watcher integration. Validate both packages with `cargo test --workspace`.
 

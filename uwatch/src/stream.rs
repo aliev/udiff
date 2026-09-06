@@ -13,7 +13,7 @@ impl<W: Write> BatchStream<W> {
         write_message(
             &mut writer,
             &Message::Hello {
-                protocol: "diffwatch",
+                protocol: "uwatch",
                 version: 1,
             },
         )?;
@@ -45,9 +45,9 @@ impl BatchStream<io::Stdout> {
 }
 
 fn write_message(writer: &mut impl Write, message: &Message) -> Result<()> {
-    serde_json::to_writer(&mut *writer, message).context("cannot encode diffwatch stream")?;
+    serde_json::to_writer(&mut *writer, message).context("cannot encode uwatch stream")?;
     writer.write_all(b"\n")?;
-    writer.flush().context("cannot flush diffwatch stream")
+    writer.flush().context("cannot flush uwatch stream")
 }
 
 #[derive(Serialize)]
@@ -94,6 +94,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(messages.len(), 2);
         assert_eq!(messages[0]["type"], "hello");
+        assert_eq!(messages[0]["protocol"], "uwatch");
         assert_eq!(messages[1]["number"], 2);
         assert!(messages[1]["diff"]
             .as_str()

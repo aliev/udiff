@@ -12,6 +12,7 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ### Changed
 
+- Renamed the filesystem watcher package and executable to `uwatch`.
 - Renamed the application to μdiff and its executable to `udiff`.
 - μdiff is now a universal unified-diff viewer that reads standard input.
 - Comments are temporary and can be copied together as compact plain text.

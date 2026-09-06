@@ -15,13 +15,13 @@ exclude = ["/.github/", "/AGENTS.md", "/docs/assets/"]
 
 [features]
 default = ["watch"]
-watch = ["dep:diffwatch"]
+watch = ["dep:uwatch"]
 
 [dependencies]
 anyhow = "1"
 base64 = "0.23"
 crossterm = { version = "0.29", features = ["use-dev-tty"] }
-diffwatch = { path = "diffwatch", optional = true }
+uwatch = { path = "uwatch", optional = true }
 ratatui = "0.30"
 regex = "1"
 syntect = { version = "5", default-features = false, features = ["default-syntaxes", "default-themes", "regex-fancy"] }
@@ -29,7 +29,7 @@ tui-tree-widget = "0.24"
 unicode-width = "0.2"
 
 [workspace]
-members = ["diffwatch"]
+members = ["uwatch"]
 resolver = "2"
 
 [profile.release]

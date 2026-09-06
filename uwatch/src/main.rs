@@ -1,13 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use clap::{Args as ClapArgs, Parser, Subcommand};
-use diffwatch::batch::Batch;
-use diffwatch::config::{DEFAULT_MAX_TEXT_BYTES, DEFAULT_SETTLE_SECONDS};
-use diffwatch::history::{list_sessions, read_batch};
-use diffwatch::journal::Journal;
-use diffwatch::path_filter::PathFilter;
-use diffwatch::snapshot::{CaptureOptions, Snapshot};
-use diffwatch::stream::BatchStream;
 use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
@@ -17,6 +10,13 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
+use uwatch::batch::Batch;
+use uwatch::config::{DEFAULT_MAX_TEXT_BYTES, DEFAULT_SETTLE_SECONDS};
+use uwatch::history::{list_sessions, read_batch};
+use uwatch::journal::Journal;
+use uwatch::path_filter::PathFilter;
+use uwatch::snapshot::{CaptureOptions, Snapshot};
+use uwatch::stream::BatchStream;
 
 #[derive(Debug, Parser)]
 #[command(version, about)]
@@ -39,7 +39,7 @@ struct WatchArgs {
     settle: f64,
 
     /// Journal directory. Relative paths are resolved inside the watched root.
-    #[arg(long, default_value = ".diffwatch")]
+    #[arg(long, default_value = ".uwatch")]
     journal: PathBuf,
 
     /// Maximum text file size retained for line diffs, in bytes.
@@ -60,7 +60,7 @@ struct HistoryArgs {
     #[arg(default_value = ".")]
     root: PathBuf,
 
-    #[arg(long, default_value = ".diffwatch")]
+    #[arg(long, default_value = ".uwatch")]
     journal: PathBuf,
 }
 
@@ -72,7 +72,7 @@ struct ShowArgs {
     #[arg(default_value = ".")]
     root: PathBuf,
 
-    #[arg(long, default_value = ".diffwatch")]
+    #[arg(long, default_value = ".uwatch")]
     journal: PathBuf,
 
     /// Session directory name. Defaults to the latest session.
@@ -212,7 +212,7 @@ fn show_history(args: HistoryArgs) -> Result<()> {
     let journal_root = absolute_journal_path(&root, &args.journal);
     let sessions = list_sessions(&journal_root)?;
     if sessions.is_empty() {
-        println!("No diffwatch sessions found in {}", journal_root.display());
+        println!("No uwatch sessions found in {}", journal_root.display());
         return Ok(());
     }
     for session in sessions {
@@ -250,16 +250,17 @@ mod tests {
     use clap::Parser;
 
     #[test]
-    fn existing_watch_syntax_is_preserved() {
-        let args = Args::try_parse_from(["diffwatch", "project", "--settle", "1.5"]).unwrap();
+    fn watch_syntax_uses_uwatch_journal_by_default() {
+        let args = Args::try_parse_from(["uwatch", "project", "--settle", "1.5"]).unwrap();
         assert!(args.command.is_none());
         assert_eq!(args.watch.root, PathBuf::from("project"));
         assert_eq!(args.watch.settle, 1.5);
+        assert_eq!(args.watch.journal, PathBuf::from(".uwatch"));
     }
 
     #[test]
     fn parses_history_subcommand() {
-        let args = Args::try_parse_from(["diffwatch", "history", "project"]).unwrap();
+        let args = Args::try_parse_from(["uwatch", "history", "project"]).unwrap();
         assert!(matches!(args.command, Some(Command::History(_))));
     }
 }

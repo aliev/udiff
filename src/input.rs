@@ -20,9 +20,9 @@ impl StdinDiffSource {
 mod watch {
     use crate::model::{FileDiff, parse_unified_diff};
     use anyhow::Result;
-    use diffwatch::watcher::{WatchEvent, WatchHandle, WatchOptions};
     use std::path::PathBuf;
     use std::sync::mpsc::TryRecvError;
+    use uwatch::watcher::{WatchEvent, WatchHandle, WatchOptions};
 
     #[derive(Debug)]
     pub enum WatchInputEvent {
