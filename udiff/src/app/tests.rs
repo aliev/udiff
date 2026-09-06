@@ -1685,3 +1685,91 @@ fn hiding_the_explorer_leaves_a_mark_where_it_was() {
     assert!(screen(&terminal).iter().any(|row| row.contains('▾')));
     assert_eq!(app.focus, Focus::Files);
 }
+
+#[test]
+fn turning_wrapping_off_cuts_the_line_and_says_so() {
+    let code = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789TAIL";
+    let diff = format!(
+        "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1 @@\n+{code}\n"
+    );
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+    let rows = |terminal: &Terminal<TestBackend>| {
+        (0..12u16)
+            .map(|y| {
+                (0..100u16)
+                    .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+    };
+
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let wrapped = rows(&terminal);
+    assert!(
+        wrapped.iter().any(|row| row.contains('↪')),
+        "it folds to begin with"
+    );
+    assert!(
+        wrapped.iter().any(|row| row.contains("TAIL")),
+        "and the tail is visible"
+    );
+
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let cut = rows(&terminal);
+    assert!(
+        !cut.iter().any(|row| row.contains('↪')),
+        "nothing folds now"
+    );
+    assert!(
+        !cut.iter().any(|row| row.contains("TAIL")),
+        "the tail is off-screen"
+    );
+    assert!(
+        cut.iter().any(|row| row.contains('›')),
+        "and the cut is marked rather than looking like the end of the line"
+    );
+}
+
+#[test]
+fn walking_right_past_the_edge_scrolls_sideways() {
+    let code = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789TAIL";
+    let diff = format!(
+        "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1 @@\n+{code}\n"
+    );
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.diff_pane.h_scroll, 0);
+
+    // Walk the cursor to the end of the line; the view has to follow it.
+    for _ in 0..code.chars().count() {
+        app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(app.diff_pane.h_scroll > 0, "the view followed the cursor");
+    let rows = (0..12u16)
+        .map(|y| {
+            (0..100u16)
+                .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        rows.iter().any(|row| row.contains("TAIL")),
+        "the tail is on screen"
+    );
+
+    // A hunk header labels the code rather than being code, and it is shorter
+    // than the code, so scrolling it away would simply lose it.
+    assert!(
+        rows.iter().any(|row| row.contains("@@ -0,0 +1 @@")),
+        "the hunk header stayed put"
+    );
+
+    // Wrapping again puts everything back on the left.
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.h_scroll, 0);
+}

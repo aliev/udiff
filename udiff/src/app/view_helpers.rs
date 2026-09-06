@@ -1,4 +1,4 @@
-use super::{TAB_WIDTH, editor::next_boundary};
+use super::{TAB_WIDTH, editor::next_boundary, render::crop_spans};
 use crate::theme::theme;
 use crate::{
     comment::Comment,
@@ -11,6 +11,9 @@ use ratatui::{
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 /// Marks a row that continues the previous one after soft wrapping.
 pub(super) const WRAP_MARKER: &str = "\u{21aa}";
+
+/// Marks a row that continues past the right edge because wrapping is off.
+pub(super) const CUT_MARKER: &str = "\u{203a}";
 
 /// `1 comment` / `2 comments`, so counters never read `1 comments`.
 pub(super) fn plural(count: usize, singular: &str) -> String {
@@ -180,6 +183,61 @@ pub(super) fn reverse_row(spans: &mut [Span<'_>]) {
     }
 }
 
+/// One row for a line that is cut at the right rather than folded. The gutter
+/// stays put and only the code scrolls, and a `›` in the last column says the
+/// line goes on — the same reason a folded row carries `↪`.
+pub(super) fn crop_code_line(
+    line: Line<'_>,
+    code_start: usize,
+    width: usize,
+    offset: usize,
+) -> Line<'static> {
+    let mut spans = line.spans.into_iter();
+    let prefix = spans
+        .by_ref()
+        .take(code_start)
+        .map(|span| Span::styled(span.content.into_owned(), span.style))
+        .collect::<Vec<_>>();
+    let prefix_width = prefix
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum::<usize>();
+    let background = prefix
+        .first()
+        .and_then(|span| span.style.bg)
+        .unwrap_or(theme().bg);
+    let available = width.saturating_sub(prefix_width);
+    let code = spans
+        .map(|span| Span::styled(span.content.into_owned(), span.style))
+        .collect::<Vec<_>>();
+    let full = code
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum::<usize>();
+
+    let mut row = prefix;
+    let cut = full > offset + available;
+    let visible = available.saturating_sub(usize::from(cut));
+    row.extend(crop_spans(code, offset, visible));
+    let rendered = row
+        .iter()
+        .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
+        .sum::<usize>();
+    if rendered < width.saturating_sub(usize::from(cut)) {
+        row.push(Span::styled(
+            " ".repeat(width - usize::from(cut) - rendered),
+            Style::default().bg(background),
+        ));
+    }
+    if cut {
+        row.push(Span::styled(
+            CUT_MARKER,
+            Style::default().fg(theme().muted).bg(background),
+        ));
+    }
+    Line::from(row)
+}
+
 /// Blank gutter for a soft-wrapped row, with a dim marker so a continuation
 /// never reads as a real diff line that simply has no line numbers.
 fn continuation_prefix(
@@ -201,27 +259,43 @@ fn continuation_prefix(
     }
 }
 
+/// The three facts every row calculation needs, and which always travel
+/// together: how wide the pane is, how much of that the gutter takes, and
+/// whether a long line folds or is cut.
+#[derive(Clone, Copy)]
+pub(super) struct Metrics {
+    pub width: usize,
+    pub prefix_width: usize,
+    pub wrap: bool,
+}
+
 pub(super) fn wrapped_scroll(
     scroll: usize,
     cursor: usize,
     height: usize,
-    width: usize,
-    prefix_width: usize,
+    metrics: Metrics,
     lines: &[DiffLine],
     sticky_hunk: bool,
 ) -> usize {
+    let Metrics {
+        width,
+        prefix_width,
+        wrap,
+    } = metrics;
     let cursor = cursor.min(lines.len().saturating_sub(1));
     let mut scroll = scroll.min(cursor);
     while scroll < cursor {
         let content_rows = lines[scroll..=cursor]
             .iter()
-            .map(|line| wrapped_code_row_count(&line.text, prefix_width, width))
+            .map(|line| wrapped_code_row_count(&line.text, prefix_width, width, wrap))
             .sum::<usize>();
         let sticky_rows = if sticky_hunk && lines[scroll].kind != LineKind::Hunk {
             lines[..scroll]
                 .iter()
                 .rposition(|line| line.kind == LineKind::Hunk)
-                .map(|position| wrapped_code_row_count(&lines[position].text, prefix_width, width))
+                .map(|position| {
+                    wrapped_code_row_count(&lines[position].text, prefix_width, width, wrap)
+                })
                 .unwrap_or(0)
         } else {
             0
@@ -234,7 +308,17 @@ pub(super) fn wrapped_scroll(
     scroll
 }
 
-pub(super) fn wrapped_code_row_count(text: &str, prefix_width: usize, width: usize) -> usize {
+pub(super) fn wrapped_code_row_count(
+    text: &str,
+    prefix_width: usize,
+    width: usize,
+    wrap: bool,
+) -> usize {
+    // Every scroll calculation counts rows through here, so one line taking
+    // exactly one row is all the rest of them need to know.
+    if !wrap {
+        return 1;
+    }
     let available = width.saturating_sub(prefix_width);
     if available == 0 {
         return 1;

@@ -5,9 +5,9 @@ use super::{
     render::{inline_comment_lines, styled_syntax_spans},
     session::Session,
     view_helpers::{
-        anchor_position, apply_block_cursor, apply_character_selection, editor_visual_rows,
-        expand_tabs, expanded_character_column, line_in_comment, ordered, ordered_position,
-        reverse_row, wrap_code_line, wrapped_scroll,
+        Metrics, anchor_position, apply_block_cursor, apply_character_selection, crop_code_line,
+        editor_visual_rows, expand_tabs, expanded_character_column, line_in_comment, ordered,
+        ordered_position, reverse_row, wrap_code_line, wrapped_scroll,
     },
 };
 use crate::{
@@ -293,24 +293,68 @@ impl Renderer<'_> {
         );
     }
 
+    /// Rows for one diff line: several when it folds, exactly one when it is
+    /// cut at the right instead.
+    fn rows_for(&self, line: Line<'_>, width: usize, kind: LineKind) -> Vec<Line<'static>> {
+        if self.pane.wrap {
+            return wrap_code_line(line, 3, width, Some(WRAP_MARKER_COLUMN));
+        }
+        // A hunk header labels the code rather than being code, and it is
+        // shorter than the code it labels, so scrolling would simply lose it.
+        let offset = if kind == LineKind::Hunk {
+            0
+        } else {
+            self.pane.h_scroll
+        };
+        vec![crop_code_line(line, 3, width, offset)]
+    }
+
+    /// Keeps the cursor's column in view the way `ensure_visible` keeps its
+    /// line in view. Nothing scrolls sideways while lines fold.
+    fn ensure_column_visible(&mut self, width: usize) {
+        if self.pane.wrap {
+            self.pane.h_scroll = 0;
+            return;
+        }
+        let available = width.saturating_sub(DIFF_PREFIX_WIDTH).max(1);
+        let line = &self.active_lines()[self.pane.cursor];
+        let column = expanded_character_column(&line.text, self.pane.visual_col);
+        if column < self.pane.h_scroll {
+            self.pane.h_scroll = column;
+        } else if column >= self.pane.h_scroll + available {
+            self.pane.h_scroll = column + 1 - available;
+        }
+    }
+
     fn draw_diff(&mut self, f: &mut Frame, a: Rect) {
         let height = a.height as usize;
         self.ensure_visible(height);
+        self.ensure_column_visible(a.width as usize);
         let mut lines = Vec::new();
         let mut map = Vec::new();
         let file = self.current().clone();
         let editor_active = self.focus == Focus::Editor && self.editor.anchor.is_some();
         let sticky_hunk = !editor_active;
         if editor_active {
-            self.pane.scroll =
-                editor_aware_scroll(height, a.width as usize, &file, self.session, self.editor);
+            self.pane.scroll = editor_aware_scroll(
+                height,
+                a.width as usize,
+                &file,
+                self.session,
+                self.editor,
+                self.pane.wrap,
+            );
         } else {
+            let metrics = Metrics {
+                width: a.width as usize,
+                prefix_width: DIFF_PREFIX_WIDTH,
+                wrap: self.pane.wrap,
+            };
             self.pane.scroll = wrapped_scroll(
                 self.pane.scroll,
                 self.pane.cursor,
                 height,
-                a.width as usize,
-                DIFF_PREFIX_WIDTH,
+                metrics,
                 &file.lines,
                 sticky_hunk,
             );
@@ -318,7 +362,7 @@ impl Renderer<'_> {
                 self.pane.scroll,
                 self.pane.cursor,
                 height,
-                a.width as usize,
+                metrics,
                 &file,
                 self.session,
                 SCROLL_MARGIN_ROWS,
@@ -334,11 +378,10 @@ impl Renderer<'_> {
                 .iter()
                 .rposition(|line| line.kind == LineKind::Hunk)
         {
-            for line in wrap_code_line(
+            for line in self.rows_for(
                 self.diff_line(&file.lines[sticky], sticky, a.width as usize),
-                3,
                 a.width as usize,
-                Some(WRAP_MARKER_COLUMN),
+                LineKind::Hunk,
             ) {
                 lines.push(line);
                 map.push(Some(sticky));
@@ -349,11 +392,10 @@ impl Renderer<'_> {
                 break;
             }
             let l = &file.lines[p];
-            for line in wrap_code_line(
+            for line in self.rows_for(
                 self.diff_line(l, p, a.width as usize),
-                3,
                 a.width as usize,
-                Some(WRAP_MARKER_COLUMN),
+                l.kind,
             ) {
                 lines.push(line);
                 map.push(Some(p));
@@ -589,14 +631,15 @@ fn review_aware_scroll(
     mut scroll: usize,
     cursor: usize,
     height: usize,
-    width: usize,
+    metrics: Metrics,
     file: &FileDiff,
     session: &Session,
     bottom_margin: usize,
 ) -> usize {
+    let (width, wrap) = (metrics.width, metrics.wrap);
     let bottom_margin = bottom_margin.min(height.saturating_sub(1));
     while scroll < cursor {
-        let occupied = rendered_rows_through(scroll, cursor, width, file, session, true);
+        let occupied = rendered_rows_through(scroll, cursor, width, file, session, true, wrap);
         if occupied.saturating_add(bottom_margin) <= height {
             break;
         }
@@ -611,6 +654,7 @@ fn editor_aware_scroll(
     file: &FileDiff,
     session: &Session,
     editor: &CommentEditor,
+    wrap: bool,
 ) -> usize {
     let Some(anchor) = editor.anchor.filter(|anchor| *anchor < file.lines.len()) else {
         return 0;
@@ -622,7 +666,7 @@ fn editor_aware_scroll(
     let desired_rows_before = height.saturating_sub(editor_rows) / 2;
     while scroll > 0 {
         let candidate = scroll - 1;
-        if rendered_rows_through(candidate, anchor, width, file, session, false)
+        if rendered_rows_through(candidate, anchor, width, file, session, false, wrap)
             > desired_rows_before
         {
             break;
@@ -639,6 +683,7 @@ fn rendered_rows_through(
     file: &FileDiff,
     session: &Session,
     sticky_hunk: bool,
+    wrap: bool,
 ) -> usize {
     if file.lines.is_empty() {
         return 0;
@@ -648,7 +693,7 @@ fn rendered_rows_through(
     let code_rows = file.lines[scroll..=target]
         .iter()
         .map(|line| {
-            super::view_helpers::wrapped_code_row_count(&line.text, DIFF_PREFIX_WIDTH, width)
+            super::view_helpers::wrapped_code_row_count(&line.text, DIFF_PREFIX_WIDTH, width, wrap)
         })
         .sum::<usize>();
     let inline_rows = session
@@ -672,6 +717,7 @@ fn rendered_rows_through(
                     &file.lines[position].text,
                     DIFF_PREFIX_WIDTH,
                     width,
+                    wrap,
                 )
             })
             .unwrap_or(0)

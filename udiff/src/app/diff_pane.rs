@@ -34,6 +34,10 @@ pub struct DiffPane {
     pub last_click: Option<(Instant, usize)>,
     pub area: Rect,
     pub row_map: Vec<Option<usize>>,
+    /// Soft wrapping. Session-only, like every other view preference here.
+    pub wrap: bool,
+    /// Columns scrolled past on the left. Always 0 while wrapping.
+    pub h_scroll: usize,
 }
 
 impl DiffPane {
@@ -59,6 +63,8 @@ impl DiffPane {
             last_click: None,
             area: Rect::default(),
             row_map: Vec::new(),
+            wrap: true,
+            h_scroll: 0,
         }
     }
 
@@ -243,6 +249,13 @@ impl DiffPane {
             KeyCode::Char('G') => self.cursor = self.active_lines(files).len().saturating_sub(1),
             KeyCode::Char('j') | KeyCode::Down if focused => self.move_cursor(1, files),
             KeyCode::Char('k') | KeyCode::Up if focused => self.move_cursor(-1, files),
+            KeyCode::Char('w') if focused => {
+                self.wrap = !self.wrap;
+                // Nothing is off to the left once the line folds instead.
+                if self.wrap {
+                    self.h_scroll = 0;
+                }
+            }
             KeyCode::Char('h') | KeyCode::Left if focused => {
                 self.visual_col = self.visual_col.saturating_sub(1)
             }
