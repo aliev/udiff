@@ -161,11 +161,11 @@ fn renders_complete_layout() {
     );
     // Changed-line background reaches the right edge of the diff viewport.
     assert_eq!(
-        terminal.backend().buffer().cell((99, 3)).unwrap().bg,
+        terminal.backend().buffer().cell((99, 2)).unwrap().bg,
         theme().red_bg
     );
     assert_eq!(
-        terminal.backend().buffer().cell((99, 4)).unwrap().bg,
+        terminal.backend().buffer().cell((99, 3)).unwrap().bg,
         theme().green_bg
     );
 }
@@ -179,7 +179,7 @@ fn current_file_marker_stays_at_the_left_edge_for_nested_paths() {
     terminal.draw(|frame| app.draw(frame)).unwrap();
 
     assert_eq!(
-        terminal.backend().buffer().cell((0, 3)).unwrap().symbol(),
+        terminal.backend().buffer().cell((0, 2)).unwrap().symbol(),
         "▌"
     );
 }
@@ -206,7 +206,7 @@ fn long_code_lines_wrap_in_diff_view() {
     };
 
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert!(row_text(&terminal, 4).contains("WRAPPED"));
+    assert!(row_text(&terminal, 3).contains("WRAPPED"));
 }
 
 #[test]
@@ -291,7 +291,7 @@ fn scrolled_out_hunk_header_sticks_without_duplication() {
         .chunks(100)
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect::<Vec<_>>();
-    assert!(screen[2].contains("@@ -20 +20 @@ second"));
+    assert!(screen[1].contains("@@ -20 +20 @@ second"));
     assert_eq!(
         screen
             .iter()
@@ -310,8 +310,8 @@ fn scrolled_out_hunk_header_sticks_without_duplication() {
         .chunks(100)
         .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
         .collect::<Vec<_>>();
-    assert!(screen[2].contains("@@ -20 +20 @@ second"));
-    assert!(!screen[2].contains("@@ -1 +1 @@ first"));
+    assert!(screen[1].contains("@@ -20 +20 @@ second"));
+    assert!(!screen[1].contains("@@ -1 +1 @@ first"));
 }
 
 #[test]
@@ -321,26 +321,23 @@ fn tab_moves_focus_accent_between_panels() {
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     // The explorer divider sits on its last column, wherever the layout put it.
     let divider = super::view::sidebar_width(100, false) - 1;
+    let accent = |terminal: &Terminal<TestBackend>| {
+        terminal.backend().buffer().cell((divider, 3)).unwrap().fg
+    };
+    let mode = |terminal: &Terminal<TestBackend>| {
+        (0..10)
+            .map(|x| terminal.backend().buffer().cell((x, 29)).unwrap().symbol())
+            .collect::<String>()
+    };
+
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert_eq!(
-        terminal.backend().buffer().cell((50, 1)).unwrap().fg,
-        theme().blue
-    );
-    assert_eq!(
-        terminal.backend().buffer().cell((divider, 4)).unwrap().fg,
-        theme().border
-    );
+    assert_eq!(accent(&terminal), theme().border);
+    assert!(mode(&terminal).starts_with(" NORMAL"));
 
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert_eq!(
-        terminal.backend().buffer().cell((50, 1)).unwrap().fg,
-        theme().border
-    );
-    assert_eq!(
-        terminal.backend().buffer().cell((divider, 4)).unwrap().fg,
-        theme().blue
-    );
+    assert_eq!(accent(&terminal), theme().blue);
+    assert!(mode(&terminal).starts_with(" FILES"));
 }
 
 #[test]
@@ -759,20 +756,20 @@ fn tab_indented_go_lines_keep_their_indent_and_cursor_when_moving_down() {
 
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let first_line = terminal.backend().buffer();
-    assert_eq!(first_line.cell((code, 3)).unwrap().symbol(), " ");
-    assert_eq!(first_line.cell((code, 3)).unwrap().bg, theme().text);
+    assert_eq!(first_line.cell((code, 2)).unwrap().symbol(), " ");
+    assert_eq!(first_line.cell((code, 2)).unwrap().bg, theme().text);
     assert!(
-        (code + 4..code + 9).any(|x| first_line.cell((x, 3)).unwrap().symbol() == "i"),
+        (code + 4..code + 9).any(|x| first_line.cell((x, 2)).unwrap().symbol() == "i"),
         "the tab should create visible indentation before the Go code"
     );
 
     app.key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let second_line = terminal.backend().buffer();
-    assert_eq!(second_line.cell((code, 4)).unwrap().symbol(), " ");
-    assert_eq!(second_line.cell((code, 4)).unwrap().bg, theme().text);
+    assert_eq!(second_line.cell((code, 3)).unwrap().symbol(), " ");
+    assert_eq!(second_line.cell((code, 3)).unwrap().bg, theme().text);
     assert!(
-        (code + 8..code + 17).any(|x| second_line.cell((x, 4)).unwrap().symbol() == "r"),
+        (code + 8..code + 17).any(|x| second_line.cell((x, 3)).unwrap().symbol() == "r"),
         "two tabs should create a larger visible indent"
     );
 }
@@ -1511,9 +1508,8 @@ fn nothing_is_left_to_the_terminals_own_foreground() {
 
 #[test]
 fn the_file_bar_is_only_as_tall_as_its_text() {
-    // Painting the panel colour across the rule as well leaves a tinted strip
-    // under the path, so the text sits in the top half of the bar rather than
-    // filling it.
+    // The bar used to be two rows with the path on the first, leaving an empty
+    // tinted strip under it before the rule.
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
     let width = 100;
@@ -1525,11 +1521,11 @@ fn the_file_bar_is_only_as_tall_as_its_text() {
     assert_eq!(
         buffer.cell((inside_diff, 0)).unwrap().bg,
         theme().surface,
-        "the bar row carries the panel colour"
+        "the bar carries the panel colour"
     );
-    assert_eq!(
+    assert_ne!(
         buffer.cell((inside_diff, 1)).unwrap().bg,
-        theme().bg,
-        "the rule row belongs to the canvas, not to the bar"
+        theme().surface,
+        "and it ends there: the next row is already content"
     );
 }

@@ -20,7 +20,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
+    widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 use regex::Regex;
 use unicode_width::UnicodeWidthStr;
@@ -178,7 +178,7 @@ impl Renderer<'_> {
         }
         let parts = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(2), Constraint::Min(3)])
+            .constraints([Constraint::Length(1), Constraint::Min(3)])
             .split(a);
         let file = self.current();
         let shown_path = if file.status == FileStatus::Renamed {
@@ -225,28 +225,9 @@ impl Renderer<'_> {
             ),
             Span::raw(" "),
         ];
-        // The bar is one row, the rule the next. Painting the panel colour
-        // across both would leave an empty tinted strip under the text, so the
-        // text would sit in the top half of the bar rather than filling it.
-        let head = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Length(1)])
-            .split(parts[0]);
-        let accent = if matches!(self.focus, Focus::Diff | Focus::Editor) {
-            theme().blue
-        } else {
-            theme().border
-        };
         f.render_widget(
             Block::default().style(Style::default().bg(theme().surface)),
-            head[0],
-        );
-        f.render_widget(
-            Block::default()
-                .borders(Borders::TOP)
-                .border_style(Style::default().fg(accent))
-                .style(Style::default().fg(theme().text).bg(theme().bg)),
-            head[1],
+            parts[0],
         );
         let right_width = right_header
             .iter()
@@ -256,7 +237,7 @@ impl Renderer<'_> {
         let header_columns = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(0), Constraint::Length(right_width)])
-            .split(head[0]);
+            .split(parts[0]);
         f.render_widget(
             Paragraph::new(Line::from(left_header)).style(Style::default().bg(theme().surface)),
             header_columns[0],

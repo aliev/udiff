@@ -6,7 +6,6 @@ use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Position, Rect},
     style::{Modifier, Style},
-    symbols::border,
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
@@ -265,7 +264,7 @@ impl FileTree {
         }
         let rows = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([Constraint::Length(2), Constraint::Min(0)])
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
             .split(area);
         self.draw_summary(frame, rows[0], view);
 
@@ -370,15 +369,9 @@ impl FileTree {
                 .block(
                     Block::default()
                         .borders(if view.divided {
-                            Borders::RIGHT | Borders::BOTTOM
+                            Borders::RIGHT
                         } else {
-                            Borders::BOTTOM
-                        })
-                        // Join the divider into the header rule instead of
-                        // closing it off with a stray corner.
-                        .border_set(border::Set {
-                            bottom_right: "\u{252c}",
-                            ..border::PLAIN
+                            Borders::NONE
                         })
                         .border_style(Style::default().fg(if view.focused {
                             theme().blue
