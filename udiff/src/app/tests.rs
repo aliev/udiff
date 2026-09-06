@@ -5,7 +5,7 @@ use super::*;
 use crate::comment::{Comment, CommentBody};
 use crate::model::{FileStatus, parse_unified_diff};
 use crate::theme::theme;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
     Terminal,
     backend::TestBackend,
@@ -1610,4 +1610,34 @@ fn opening_an_editor_aims_at_the_new_side_of_the_diff() {
         panic!("e opens an editor");
     };
     assert_eq!(target.line, Some(10));
+}
+
+#[test]
+fn the_mouse_leaves_the_diff_alone_while_the_editor_is_open() {
+    // Keys are routed by focus; the mouse was not, so a scroll reached the
+    // diff cursor and, with a review range open, kept extending it.
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,6 +1,6 @@\n one\n two\n three\n four\n five\n six\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+    assert_eq!(app.focus, Focus::Editor);
+    let cursor = app.diff_pane.cursor;
+    let anchor = app.diff_pane.range_anchor;
+
+    app.update(Command::Mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: 60,
+        row: 6,
+        modifiers: KeyModifiers::NONE,
+    }));
+    app.update(Command::Mouse(MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column: 60,
+        row: 6,
+        modifiers: KeyModifiers::NONE,
+    }));
+
+    assert_eq!(app.diff_pane.cursor, cursor, "the cursor stayed put");
+    assert_eq!(app.diff_pane.range_anchor, anchor, "the range did not grow");
+    assert_eq!(app.focus, Focus::Editor, "and the editor kept focus");
 }

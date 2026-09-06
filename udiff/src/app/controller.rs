@@ -184,7 +184,10 @@ impl App {
     }
 
     fn mouse(&mut self, mouse: MouseEvent) {
-        if self.help.is_open() {
+        // Keys are routed by focus, and the mouse follows the same rule: while
+        // the editor or the filter owns input, a scroll must not walk the diff
+        // cursor along — with a review range open it would keep extending it.
+        if self.help.is_open() || matches!(self.focus, Focus::Editor | Focus::Filter) {
             return;
         }
         match mouse.kind {
