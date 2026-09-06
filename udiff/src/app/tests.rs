@@ -246,6 +246,34 @@ fn last_wrapped_line_remains_visible_at_the_end_of_diff() {
 }
 
 #[test]
+fn final_diff_line_keeps_a_bottom_scroll_margin() {
+    let added = (1..=30)
+        .map(|number| format!("+line_{number:02}();\n"))
+        .collect::<String>();
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1,30 @@\n{added}");
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
+
+    app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let screen = terminal
+        .backend()
+        .buffer()
+        .content()
+        .chunks(100)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>();
+    let cursor_row = screen
+        .iter()
+        .position(|row| row.contains("line_30();"))
+        .expect("last diff line should be visible");
+    let viewport_bottom = usize::from(app.diff_pane.area.bottom());
+    assert!(viewport_bottom.saturating_sub(cursor_row + 1) >= 3);
+}
+
+#[test]
 fn scrolled_out_hunk_header_sticks_without_duplication() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@ first\n one\n@@ -20 +20 @@ second\n two\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
@@ -1117,6 +1145,81 @@ fn suggestion_editor_uses_the_file_syntax_highlighter() {
         .expect("Rust keyword should have its own syntax span");
     assert_ne!(keyword.style.fg, Some(TEXT));
     assert_eq!(keyword.style.bg, Some(COMMENT_BG));
+}
+
+#[test]
+fn suggestion_editor_on_the_final_selection_is_fully_visible_and_centered() {
+    let added = (1..=30)
+        .map(|number| format!("+line_{number:02}();\n"))
+        .collect::<String>();
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1,30 @@\n{added}");
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+    app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let screen = terminal
+        .backend()
+        .buffer()
+        .content()
+        .chunks(100)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>();
+    let editor_top = screen
+        .iter()
+        .position(|row| row.contains("NEW SUGGESTION · 2 lines selected"))
+        .expect("editor title should be visible");
+    let editor_bottom = screen
+        .iter()
+        .position(|row| row.contains("Enter save · Shift+Enter newline · Esc cancel"))
+        .expect("editor footer should be visible");
+    let viewport_top = usize::from(app.diff_pane.area.top());
+    let viewport_bottom = usize::from(app.diff_pane.area.bottom());
+    let rows_before = editor_top.saturating_sub(viewport_top);
+    let rows_after = viewport_bottom.saturating_sub(editor_bottom + 1);
+    assert!(rows_before.abs_diff(rows_after) <= 1);
+}
+
+#[test]
+fn comment_editor_recenters_when_its_anchor_starts_at_the_top() {
+    let added = (1..=30)
+        .map(|number| format!("+line_{number:02}();\n"))
+        .collect::<String>();
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1,30 @@\n{added}");
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    app.diff_pane.cursor = 15;
+    app.diff_pane.scroll = 15;
+    app.open_editor();
+    let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let screen = terminal
+        .backend()
+        .buffer()
+        .content()
+        .chunks(100)
+        .map(|row| row.iter().map(|cell| cell.symbol()).collect::<String>())
+        .collect::<Vec<_>>();
+    let editor_top = screen
+        .iter()
+        .position(|row| row.contains("NEW COMMENT · 1 line selected"))
+        .expect("editor title should be visible");
+    let editor_bottom = screen
+        .iter()
+        .position(|row| row.contains("Enter save · Shift+Enter newline · Esc cancel"))
+        .expect("editor footer should be visible");
+    let viewport_top = usize::from(app.diff_pane.area.top());
+    let viewport_bottom = usize::from(app.diff_pane.area.bottom());
+    let rows_before = editor_top.saturating_sub(viewport_top);
+    let rows_after = viewport_bottom.saturating_sub(editor_bottom + 1);
+    assert!(rows_before.abs_diff(rows_after) <= 1);
 }
 
 #[test]

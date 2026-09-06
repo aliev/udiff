@@ -25,6 +25,11 @@ use ratatui::{
 use regex::Regex;
 use unicode_width::UnicodeWidthStr;
 
+const DIFF_PREFIX_WIDTH: usize = 13;
+const EDITOR_PREFIX_WIDTH: usize = 13;
+const EDITOR_TEXT_INSET: usize = 2;
+const SCROLL_MARGIN_ROWS: usize = 3;
+
 #[cfg(test)]
 impl DiffPane {
     pub(super) fn line_for_test<'a>(
@@ -245,28 +250,37 @@ impl Renderer<'_> {
         let mut lines = Vec::new();
         let mut map = Vec::new();
         let file = self.current().clone();
-        self.pane.scroll = wrapped_scroll(
-            self.pane.scroll,
-            self.pane.cursor,
-            height,
-            a.width as usize,
-            13,
-            &file.lines,
-            true,
-        );
-        self.pane.scroll = review_aware_scroll(
-            self.pane.scroll,
-            self.pane.cursor,
-            height,
-            a.width as usize,
-            &file,
-            self.session,
-        );
+        let editor_active = self.focus == Focus::Editor && self.editor.anchor.is_some();
+        let sticky_hunk = !editor_active;
+        if editor_active {
+            self.pane.scroll =
+                editor_aware_scroll(height, a.width as usize, &file, self.session, self.editor);
+        } else {
+            self.pane.scroll = wrapped_scroll(
+                self.pane.scroll,
+                self.pane.cursor,
+                height,
+                a.width as usize,
+                DIFF_PREFIX_WIDTH,
+                &file.lines,
+                sticky_hunk,
+            );
+            self.pane.scroll = review_aware_scroll(
+                self.pane.scroll,
+                self.pane.cursor,
+                height,
+                a.width as usize,
+                &file,
+                self.session,
+                SCROLL_MARGIN_ROWS,
+            );
+        }
         let viewport_starts_with_hunk = file
             .lines
             .get(self.pane.scroll)
             .is_some_and(|line| line.kind == LineKind::Hunk);
-        if !viewport_starts_with_hunk
+        if sticky_hunk
+            && !viewport_starts_with_hunk
             && let Some(sticky) = file.lines[..self.pane.scroll.min(file.lines.len())]
                 .iter()
                 .rposition(|line| line.kind == LineKind::Hunk)
@@ -341,7 +355,6 @@ impl Renderer<'_> {
         title: &str,
         width: usize,
     ) {
-        const EDITOR_PREFIX_WIDTH: usize = 13;
         lines.push(editor_card_line(
             vec![Span::styled(
                 format!("╭─ {title}"),
@@ -351,10 +364,7 @@ impl Renderer<'_> {
             EDITOR_PREFIX_WIDTH,
         ));
         map.push(None);
-        let visual_rows = editor_visual_rows(
-            &self.editor.text,
-            width.saturating_sub(EDITOR_PREFIX_WIDTH + 2).max(1),
-        );
+        let visual_rows = editor_visual_rows(&self.editor.text, editor_text_width(width));
         let syntax = (self.editor.mode == EditorMode::Suggestion)
             .then(|| highlight_source(&self.current().path, &self.editor.text));
         let cursor_row = visual_rows
@@ -515,56 +525,101 @@ fn review_aware_scroll(
     width: usize,
     file: &FileDiff,
     session: &Session,
+    bottom_margin: usize,
 ) -> usize {
-    let review_rows = session
-        .comments
-        .iter()
-        .filter(|comment| comment.path == file.path)
-        .enumerate()
-        .filter_map(|(number, comment)| {
-            anchor_position(file, comment).map(|anchor| {
-                (
-                    anchor,
-                    inline_comment_lines(comment, number + 1, width).len(),
-                )
-            })
-        })
-        .collect::<Vec<_>>();
+    let bottom_margin = bottom_margin.min(height.saturating_sub(1));
     while scroll < cursor {
-        let code_rows = file.lines[scroll..=cursor]
-            .iter()
-            .map(|line| super::view_helpers::wrapped_code_row_count(&line.text, 13, width))
-            .sum::<usize>();
-        let inline_rows = review_rows
-            .iter()
-            .filter(|(anchor, _)| scroll <= *anchor && *anchor < cursor)
-            .map(|(_, rows)| rows)
-            .sum::<usize>();
-        let sticky_rows = if file.lines[scroll].kind != LineKind::Hunk {
-            file.lines[..scroll]
-                .iter()
-                .rposition(|line| line.kind == LineKind::Hunk)
-                .map(|position| {
-                    super::view_helpers::wrapped_code_row_count(
-                        &file.lines[position].text,
-                        3,
-                        width,
-                    )
-                })
-                .unwrap_or(0)
-        } else {
-            0
-        };
-        if code_rows
-            .saturating_add(inline_rows)
-            .saturating_add(sticky_rows)
-            <= height
-        {
+        let occupied = rendered_rows_through(scroll, cursor, width, file, session, true);
+        if occupied.saturating_add(bottom_margin) <= height {
             break;
         }
         scroll += 1;
     }
     scroll
+}
+
+fn editor_aware_scroll(
+    height: usize,
+    width: usize,
+    file: &FileDiff,
+    session: &Session,
+    editor: &CommentEditor,
+) -> usize {
+    let Some(anchor) = editor.anchor.filter(|anchor| *anchor < file.lines.len()) else {
+        return 0;
+    };
+    let mut scroll = anchor;
+    let editor_rows = editor_visual_rows(&editor.text, editor_text_width(width))
+        .len()
+        .saturating_add(2);
+    let desired_rows_before = height.saturating_sub(editor_rows) / 2;
+    while scroll > 0 {
+        let candidate = scroll - 1;
+        if rendered_rows_through(candidate, anchor, width, file, session, false)
+            > desired_rows_before
+        {
+            break;
+        }
+        scroll = candidate;
+    }
+    scroll
+}
+
+fn rendered_rows_through(
+    scroll: usize,
+    target: usize,
+    width: usize,
+    file: &FileDiff,
+    session: &Session,
+    sticky_hunk: bool,
+) -> usize {
+    if file.lines.is_empty() {
+        return 0;
+    }
+    let target = target.min(file.lines.len() - 1);
+    let scroll = scroll.min(target);
+    let code_rows = file.lines[scroll..=target]
+        .iter()
+        .map(|line| {
+            super::view_helpers::wrapped_code_row_count(&line.text, DIFF_PREFIX_WIDTH, width)
+        })
+        .sum::<usize>();
+    let inline_rows = session
+        .comments
+        .iter()
+        .filter(|comment| comment.path == file.path)
+        .enumerate()
+        .filter_map(|(number, comment)| {
+            anchor_position(file, comment).and_then(|anchor| {
+                (scroll <= anchor && anchor < target)
+                    .then(|| inline_comment_lines(comment, number + 1, width).len())
+            })
+        })
+        .sum::<usize>();
+    let sticky_rows = if sticky_hunk && file.lines[scroll].kind != LineKind::Hunk {
+        file.lines[..scroll]
+            .iter()
+            .rposition(|line| line.kind == LineKind::Hunk)
+            .map(|position| {
+                super::view_helpers::wrapped_code_row_count(
+                    &file.lines[position].text,
+                    DIFF_PREFIX_WIDTH,
+                    width,
+                )
+            })
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    code_rows
+        .saturating_add(inline_rows)
+        .saturating_add(sticky_rows)
+}
+
+fn editor_text_width(width: usize) -> usize {
+    width
+        .saturating_sub(EDITOR_PREFIX_WIDTH + EDITOR_TEXT_INSET)
+        .max(1)
 }
 
 fn editor_card_line<'a>(mut card: Vec<Span<'a>>, width: usize, prefix_width: usize) -> Line<'a> {
