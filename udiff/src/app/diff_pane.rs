@@ -91,6 +91,15 @@ impl DiffPane {
         }
     }
 
+    /// How the diff is being read belongs to the session, not to a revision.
+    /// A batch of edits landing must not quietly drop the mode you are in.
+    pub fn adopt_view(&mut self, previous: &Self) {
+        self.wrap = previous.wrap;
+        self.split = previous.split;
+        self.side = previous.side;
+        self.h_scroll = previous.h_scroll;
+    }
+
     pub fn current<'a>(&self, files: &'a [FileDiff]) -> &'a FileDiff {
         &files[self.file]
     }

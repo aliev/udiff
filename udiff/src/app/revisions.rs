@@ -73,6 +73,7 @@ impl App {
             diff_pane: std::mem::replace(&mut self.diff_pane, diff_pane),
             file_tree: std::mem::replace(&mut self.file_tree, file_tree),
         };
+        self.diff_pane.adopt_view(&previous.diff_pane);
         self.revision_states[self.active_revision] = Some(previous);
         self.active_revision = target;
         self.focus = Focus::Diff;
