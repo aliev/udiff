@@ -4,6 +4,7 @@ use super::view_helpers::*;
 use super::*;
 use crate::comment::{Comment, CommentBody};
 use crate::model::{FileStatus, parse_unified_diff};
+use crate::theme::theme;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Terminal,
@@ -161,11 +162,11 @@ fn renders_complete_layout() {
     // Changed-line background reaches the right edge of the diff viewport.
     assert_eq!(
         terminal.backend().buffer().cell((99, 3)).unwrap().bg,
-        RED_BG
+        theme().red_bg
     );
     assert_eq!(
         terminal.backend().buffer().cell((99, 4)).unwrap().bg,
-        GREEN_BG
+        theme().green_bg
     );
 }
 
@@ -321,21 +322,24 @@ fn tab_moves_focus_accent_between_panels() {
     // The explorer divider sits on its last column, wherever the layout put it.
     let divider = super::view::sidebar_width(100, false) - 1;
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert_eq!(terminal.backend().buffer().cell((50, 1)).unwrap().fg, BLUE);
+    assert_eq!(
+        terminal.backend().buffer().cell((50, 1)).unwrap().fg,
+        theme().blue
+    );
     assert_eq!(
         terminal.backend().buffer().cell((divider, 4)).unwrap().fg,
-        BORDER
+        theme().border
     );
 
     app.key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
     assert_eq!(
         terminal.backend().buffer().cell((50, 1)).unwrap().fg,
-        BORDER
+        theme().border
     );
     assert_eq!(
         terminal.backend().buffer().cell((divider, 4)).unwrap().fg,
-        BLUE
+        theme().blue
     );
 }
 
@@ -672,10 +676,10 @@ fn characterwise_visual_mode_renders_a_distinct_block_cursor() {
     let cursor = rendered
         .spans
         .iter()
-        .find(|span| span.content == "l" && span.style.fg == Some(BG))
+        .find(|span| span.content == "l" && span.style.fg == Some(theme().bg))
         .unwrap();
 
-    assert_eq!(cursor.style.bg, Some(TEXT));
+    assert_eq!(cursor.style.bg, Some(theme().text));
     assert!(cursor.style.add_modifier.contains(Modifier::BOLD));
 }
 
@@ -684,16 +688,19 @@ fn characterwise_selection_preserves_syntax_foreground() {
     let syntax_color = Color::Rgb(214, 93, 14);
     let mut spans = vec![
         Span::raw("prefix"),
-        Span::styled("token", Style::default().fg(syntax_color).bg(GREEN_BG)),
+        Span::styled(
+            "token",
+            Style::default().fg(syntax_color).bg(theme().green_bg),
+        ),
     ];
 
     apply_character_selection(&mut spans, 1, 0, 3, Some(3));
 
     assert_eq!(spans[1].content, "t");
     assert_eq!(spans[1].style.fg, Some(syntax_color));
-    assert_eq!(spans[1].style.bg, Some(SELECT_BG));
-    assert_eq!(spans[4].style.fg, Some(BG));
-    assert_eq!(spans[4].style.bg, Some(TEXT));
+    assert_eq!(spans[1].style.bg, Some(theme().select_bg));
+    assert_eq!(spans[4].style.fg, Some(theme().bg));
+    assert_eq!(spans[4].style.bg, Some(theme().text));
 }
 
 #[test]
@@ -711,12 +718,12 @@ fn linewise_selection_does_not_highlight_the_diff_gutter() {
     assert!(
         rendered.spans[..3]
             .iter()
-            .all(|span| span.style.bg == Some(GREEN_BG))
+            .all(|span| span.style.bg == Some(theme().green_bg))
     );
     assert!(
         rendered.spans[3..]
             .iter()
-            .all(|span| span.style.bg == Some(SELECT_BG))
+            .all(|span| span.style.bg == Some(theme().select_bg))
     );
 }
 
@@ -735,11 +742,11 @@ fn normal_mode_renders_and_moves_the_character_cursor() {
     let cursor = rendered
         .spans
         .iter()
-        .find(|span| span.content == "l" && span.style.bg == Some(TEXT))
+        .find(|span| span.content == "l" && span.style.bg == Some(theme().text))
         .unwrap();
 
     assert_eq!(app.diff_pane.visual_col, 2);
-    assert_eq!(cursor.style.fg, Some(GREEN_BG));
+    assert_eq!(cursor.style.fg, Some(theme().green_bg));
 }
 
 #[test]
@@ -753,7 +760,7 @@ fn tab_indented_go_lines_keep_their_indent_and_cursor_when_moving_down() {
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let first_line = terminal.backend().buffer();
     assert_eq!(first_line.cell((code, 3)).unwrap().symbol(), " ");
-    assert_eq!(first_line.cell((code, 3)).unwrap().bg, TEXT);
+    assert_eq!(first_line.cell((code, 3)).unwrap().bg, theme().text);
     assert!(
         (code + 4..code + 9).any(|x| first_line.cell((x, 3)).unwrap().symbol() == "i"),
         "the tab should create visible indentation before the Go code"
@@ -763,7 +770,7 @@ fn tab_indented_go_lines_keep_their_indent_and_cursor_when_moving_down() {
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let second_line = terminal.backend().buffer();
     assert_eq!(second_line.cell((code, 4)).unwrap().symbol(), " ");
-    assert_eq!(second_line.cell((code, 4)).unwrap().bg, TEXT);
+    assert_eq!(second_line.cell((code, 4)).unwrap().bg, theme().text);
     assert!(
         (code + 8..code + 17).any(|x| second_line.cell((x, 4)).unwrap().symbol() == "r"),
         "two tabs should create a larger visible indent"
@@ -787,7 +794,7 @@ fn diff_block_cursor_is_hidden_while_comment_editor_has_focus() {
             .spans
             .iter()
             .filter(|span| span.content.contains('h'))
-            .all(|span| span.style.bg != Some(TEXT))
+            .all(|span| span.style.bg != Some(theme().text))
     );
 }
 
@@ -804,10 +811,10 @@ fn normal_cursor_is_visible_on_a_hunk_header() {
     let cursor = rendered
         .spans
         .iter()
-        .find(|span| span.content == "@" && span.style.bg == Some(TEXT))
+        .find(|span| span.content == "@" && span.style.bg == Some(theme().text))
         .unwrap();
 
-    assert_eq!(cursor.style.fg, Some(HUNK_BG));
+    assert_eq!(cursor.style.fg, Some(theme().hunk_bg));
 }
 
 #[test]
@@ -827,7 +834,7 @@ fn hunk_header_supports_characterwise_visual_selection_and_yank() {
         rendered
             .spans
             .iter()
-            .any(|span| span.style.bg == Some(TEXT))
+            .any(|span| span.style.bg == Some(theme().text))
     );
     let outcome = app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE));
 
@@ -926,8 +933,8 @@ fn empty_suggestion_is_kept_and_enter_reopens_it_in_suggestion_mode() {
 #[test]
 fn span_cropping_handles_unicode_boundaries() {
     let spans = vec![
-        Span::styled("  ", Style::default().fg(MUTED)),
-        Span::styled("длинный.rs", Style::default().fg(TEXT)),
+        Span::styled("  ", Style::default().fg(theme().muted)),
+        Span::styled("длинный.rs", Style::default().fg(theme().text)),
     ];
     let cropped = crop_spans(spans, 4, 5);
     assert_eq!(
@@ -937,7 +944,7 @@ fn span_cropping_handles_unicode_boundaries() {
             .collect::<String>(),
         "инный"
     );
-    assert_eq!(cropped[0].style.fg, Some(TEXT));
+    assert_eq!(cropped[0].style.fg, Some(theme().text));
 }
 
 #[test]
@@ -954,7 +961,7 @@ fn sidebar_file_statuses_are_compact_and_color_coded() {
     assert_eq!(text(FileStatus::Modified), "~ ");
     assert_eq!(text(FileStatus::Renamed), "→ ");
     let modified = file_status_spans(FileStatus::Modified);
-    assert_eq!(modified[0].style.fg, Some(BLUE));
+    assert_eq!(modified[0].style.fg, Some(theme().blue));
 }
 
 #[test]
@@ -1019,15 +1026,15 @@ fn inline_comment_is_a_full_width_visual_card() {
     let lines = inline_comment_lines(&comment, 1, 60);
     assert_eq!(lines.len(), 4);
     assert!(lines.iter().all(|line| line.width() == 60));
-    assert_eq!(lines[0].spans[0].style.bg, Some(BG));
+    assert_eq!(lines[0].spans[0].style.bg, Some(theme().bg));
     assert!(
         lines[0]
             .spans
             .iter()
             .skip(1)
-            .all(|span| span.style.bg == Some(COMMENT_BG))
+            .all(|span| span.style.bg == Some(theme().comment_bg))
     );
-    assert_eq!(lines[0].spans[1].style.fg, Some(COMMENT));
+    assert_eq!(lines[0].spans[1].style.fg, Some(theme().comment));
     assert!(lines[0].spans[1].content.contains("Comment #1 · L3–4"));
 }
 
@@ -1091,14 +1098,14 @@ fn inline_suggestion_preserves_indentation_and_uses_a_distinct_card() {
         lines
             .iter()
             .flat_map(|line| line.spans.iter().skip(1))
-            .all(|span| span.style.bg == Some(GREEN_BG))
+            .all(|span| span.style.bg == Some(theme().green_bg))
     );
     let keyword = lines
         .iter()
         .flat_map(|line| &line.spans)
         .find(|span| span.content.trim() == "fn")
         .expect("saved suggestion should retain Rust syntax spans");
-    assert_ne!(keyword.style.fg, Some(TEXT));
+    assert_ne!(keyword.style.fg, Some(theme().text));
 }
 
 #[test]
@@ -1118,7 +1125,7 @@ fn editor_cursor_moves_to_the_new_line() {
             let cell = buffer.cell((x, y)).unwrap();
             match cell.symbol() {
                 "f" if text_row.is_none() => text_row = Some(y),
-                " " if cell.bg == TEXT => cursor_row = Some(y),
+                " " if cell.bg == theme().text => cursor_row = Some(y),
                 _ => {}
             }
         }
@@ -1150,8 +1157,8 @@ fn suggestion_editor_uses_the_file_syntax_highlighter() {
         .flat_map(|line| &line.spans)
         .find(|span| span.content.trim() == "fn")
         .expect("Rust keyword should have its own syntax span");
-    assert_ne!(keyword.style.fg, Some(TEXT));
-    assert_eq!(keyword.style.bg, Some(COMMENT_BG));
+    assert_ne!(keyword.style.fg, Some(theme().text));
+    assert_eq!(keyword.style.bg, Some(theme().comment_bg));
 }
 
 #[test]
@@ -1216,7 +1223,7 @@ fn comment_editor_recenters_when_its_anchor_starts_at_the_top() {
         .collect::<Vec<_>>();
     let editor_top = screen
         .iter()
-        .position(|row| row.contains("NEW COMMENT · 1 line selected"))
+        .position(|row| row.contains("NEW theme().comment · 1 line selected"))
         .expect("editor title should be visible");
     let editor_bottom = screen
         .iter()
@@ -1269,7 +1276,7 @@ fn long_inline_suggestion_does_not_push_the_diff_cursor_out_of_view() {
             .buffer()
             .content()
             .iter()
-            .any(|cell| cell.symbol() == "t" && cell.bg == TEXT)
+            .any(|cell| cell.symbol() == "t" && cell.bg == theme().text)
     );
     assert!(app.diff_pane.scroll > 1);
 }

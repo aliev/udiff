@@ -59,9 +59,10 @@ fn resources(path: &str) -> (&'static SyntaxSet, &'static SyntaxReference, &'sta
         .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
     let theme = THEME.get_or_init(|| {
         let themes = ThemeSet::load_defaults();
+        let wanted = crate::theme::theme().syntect_theme;
         themes
             .themes
-            .get("base16-ocean.dark")
+            .get(wanted)
             .or_else(|| themes.themes.values().next())
             .expect("syntect includes at least one default theme")
             .clone()
@@ -90,4 +91,23 @@ fn syntax_spans(ranges: Vec<(Style, &str)>) -> Vec<SyntaxSpan> {
     }
     spans.retain(|span| !span.text.is_empty());
     spans
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::theme::{Mode, Palette};
+
+    #[test]
+    fn every_mode_names_a_syntect_theme_that_actually_loads() {
+        let themes = ThemeSet::load_defaults();
+        for mode in [Mode::Dark, Mode::Light, Mode::Mono] {
+            let wanted = Palette::for_mode(mode).syntect_theme;
+            assert!(
+                themes.themes.contains_key(wanted),
+                "{wanted:?} is missing, so this mode would silently fall back \
+                 to an arbitrary theme"
+            );
+        }
+    }
 }

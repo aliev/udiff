@@ -1,6 +1,7 @@
 //! Top-level screen layout. Individual widgets render themselves.
 
-use super::{App, BG, Focus, file_tree::View as FileTreeView, statusline::View as StatuslineView};
+use super::{App, Focus, file_tree::View as FileTreeView, statusline::View as StatuslineView};
+use crate::theme::theme;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
@@ -30,7 +31,10 @@ pub(super) fn sidebar_width(total: u16, files_focused: bool) -> u16 {
 impl App {
     pub fn draw(&mut self, frame: &mut Frame) {
         let root = frame.area();
-        frame.render_widget(Block::default().style(Style::default().bg(BG)), root);
+        frame.render_widget(
+            Block::default().style(Style::default().bg(theme().bg)),
+            root,
+        );
         let rows = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(8), Constraint::Length(1)])

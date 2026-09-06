@@ -1,7 +1,5 @@
-use super::{
-    BORDER, MUTED, SELECT_BG, SURFACE, TEXT, render::file_status_spans, search::fuzzy,
-    view_helpers::plural,
-};
+use super::{render::file_status_spans, search::fuzzy, view_helpers::plural};
+use crate::theme::theme;
 use crate::{comment::Comment, model::FileDiff};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
@@ -96,7 +94,9 @@ impl Folder {
             NodeId::Folder(self.path.clone()),
             Line::from(Span::styled(
                 format!("{}/", self.name),
-                Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme().muted)
+                    .add_modifier(Modifier::BOLD),
             )),
             self.items(view),
         )
@@ -290,16 +290,18 @@ impl FileTree {
                         Borders::NONE
                     })
                     .border_style(Style::default().fg(if view.focused {
-                        super::BLUE
+                        theme().blue
                     } else {
-                        BORDER
+                        theme().border
                     })),
             )
-            .style(Style::default().bg(SURFACE))
+            .style(Style::default().bg(theme().surface))
             .highlight_style(if view.focused {
-                Style::default().bg(SELECT_BG).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .bg(theme().select_bg)
+                    .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().bg(super::BG)
+                Style::default().bg(theme().bg)
             })
             .highlight_symbol("▌")
             .node_closed_symbol("▸")
@@ -346,12 +348,12 @@ impl FileTree {
             spans.push(Span::styled(
                 " \u{2713} done",
                 Style::default()
-                    .fg(super::GREEN)
+                    .fg(theme().green)
                     .add_modifier(Modifier::BOLD),
             ));
             spans.push(Span::styled(
                 format!(" \u{b7} {comments}"),
-                Style::default().fg(MUTED),
+                Style::default().fg(theme().muted),
             ));
         } else {
             let label = format!("  {reviewed}/{total} \u{b7} {comments}");
@@ -363,7 +365,7 @@ impl FileTree {
                 total,
                 meter_width(inner, UnicodeWidthStr::width(label.as_str())),
             ));
-            spans.push(Span::styled(label, Style::default().fg(MUTED)));
+            spans.push(Span::styled(label, Style::default().fg(theme().muted)));
         }
         frame.render_widget(
             Paragraph::new(Line::from(spans))
@@ -381,12 +383,12 @@ impl FileTree {
                             ..border::PLAIN
                         })
                         .border_style(Style::default().fg(if view.focused {
-                            super::BLUE
+                            theme().blue
                         } else {
-                            BORDER
+                            theme().border
                         })),
                 )
-                .style(Style::default().bg(SURFACE)),
+                .style(Style::default().bg(theme().surface)),
             area,
         );
     }
@@ -402,10 +404,13 @@ fn meter_width(inner: usize, label_width: usize) -> usize {
 fn progress_spans(reviewed: usize, total: usize, width: usize) -> Vec<Span<'static>> {
     let filled = (reviewed * width).checked_div(total).unwrap_or(0);
     vec![
-        Span::styled("\u{2501}".repeat(filled), Style::default().fg(super::GREEN)),
+        Span::styled(
+            "\u{2501}".repeat(filled),
+            Style::default().fg(theme().green),
+        ),
         Span::styled(
             "\u{2501}".repeat(width - filled),
-            Style::default().fg(BORDER),
+            Style::default().fg(theme().border),
         ),
     ]
 }
@@ -423,14 +428,22 @@ fn file_item(file: usize, view: &View<'_>) -> TreeItem<'static, NodeId> {
         .collect::<Vec<_>>();
     let mut label = vec![Span::styled(
         if reviewed { "✓ " } else { "  " },
-        Style::default().fg(if reviewed { super::GREEN } else { MUTED }),
+        Style::default().fg(if reviewed {
+            theme().green
+        } else {
+            theme().muted
+        }),
     )];
     label.extend(file_status_spans(diff.status));
     label.push(Span::raw(" "));
     label.push(Span::styled(
         name.to_owned(),
         Style::default()
-            .fg(if reviewed && !current { MUTED } else { TEXT })
+            .fg(if reviewed && !current {
+                theme().muted
+            } else {
+                theme().text
+            })
             .add_modifier(if current {
                 Modifier::BOLD
             } else {
@@ -440,7 +453,7 @@ fn file_item(file: usize, view: &View<'_>) -> TreeItem<'static, NodeId> {
     if !comments.is_empty() {
         label.push(Span::styled(
             format!("  {}", comments.len()),
-            Style::default().fg(super::COMMENT),
+            Style::default().fg(theme().comment),
         ));
     }
 
@@ -472,8 +485,16 @@ fn comment_item(
         Line::from(Span::styled(
             format!("{}  {marker}{}  {short}", item.short_location(), number + 1),
             Style::default()
-                .fg(if selected { TEXT } else { MUTED })
-                .bg(if selected { super::COMMENT_BG } else { SURFACE }),
+                .fg(if selected {
+                    theme().text
+                } else {
+                    theme().muted
+                })
+                .bg(if selected {
+                    theme().comment_bg
+                } else {
+                    theme().surface
+                }),
         )),
     )
 }

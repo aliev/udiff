@@ -1,4 +1,4 @@
-use super::{BLUE, COMMENT, MUTED, SELECT_BG, SURFACE, TEXT};
+use crate::theme::theme;
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 use ratatui::{
     Frame,
@@ -105,12 +105,15 @@ impl Help {
                 .block(
                     Block::default()
                         .title(" Help ")
-                        .title_bottom(Line::from(Span::styled(footer, Style::default().fg(MUTED))))
+                        .title_bottom(Line::from(Span::styled(
+                            footer,
+                            Style::default().fg(theme().muted),
+                        )))
                         .borders(Borders::ALL)
                         .border_type(ratatui::widgets::BorderType::Rounded)
-                        .border_style(Style::default().fg(BLUE)),
+                        .border_style(Style::default().fg(theme().blue)),
                 )
-                .style(Style::default().fg(TEXT).bg(SURFACE)),
+                .style(Style::default().fg(theme().text).bg(theme().surface)),
             area,
         );
     }
@@ -155,17 +158,21 @@ fn help_line(section: &'static str, key: &'static str, description: &'static str
     Line::from(vec![
         Span::styled(
             format!("{section:<12}"),
-            Style::default().fg(if section.is_empty() { MUTED } else { COMMENT }),
+            Style::default().fg(if section.is_empty() {
+                theme().muted
+            } else {
+                theme().comment
+            }),
         ),
         Span::styled(
             format!(" {key:<20} "),
             Style::default()
-                .fg(BLUE)
-                .bg(SELECT_BG)
+                .fg(theme().blue)
+                .bg(theme().select_bg)
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
-        Span::styled(description, Style::default().fg(TEXT)),
+        Span::styled(description, Style::default().fg(theme().text)),
     ])
 }
 

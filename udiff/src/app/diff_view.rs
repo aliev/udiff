@@ -1,6 +1,5 @@
 use super::{
-    BG, BLUE, BORDER, COMMENT, COMMENT_BG, Focus, GREEN, GREEN_BG, HUNK_BG, MUTED, RED, RED_BG,
-    SELECT_BG, SURFACE, TEXT,
+    Focus,
     comment_editor::{CommentEditor, Mode as EditorMode},
     diff_pane::{DiffPane, VisualMode},
     render::{inline_comment_lines, styled_syntax_spans},
@@ -14,11 +13,12 @@ use super::{
 use crate::{
     highlight::highlight_source,
     model::{DiffLine, FileDiff, FileStatus, LineKind},
+    theme::theme,
 };
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
@@ -195,13 +195,18 @@ impl Renderer<'_> {
         left_header.extend([
             Span::styled(
                 format!("  {shown_path}"),
-                Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(theme().text)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 format!("   +{}", file.additions()),
-                Style::default().fg(GREEN),
+                Style::default().fg(theme().green),
             ),
-            Span::styled(format!(" −{}", file.deletions()), Style::default().fg(RED)),
+            Span::styled(
+                format!(" −{}", file.deletions()),
+                Style::default().fg(theme().red),
+            ),
         ]);
         let reviewed = self.session.reviewed_files.contains(&self.pane.file);
         let right_header = vec![
@@ -213,8 +218,12 @@ impl Renderer<'_> {
                     self.session.files.len()
                 ),
                 Style::default()
-                    .fg(if reviewed { GREEN } else { BLUE })
-                    .bg(SELECT_BG)
+                    .fg(if reviewed {
+                        theme().green
+                    } else {
+                        theme().blue
+                    })
+                    .bg(theme().select_bg)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" "),
@@ -224,12 +233,12 @@ impl Renderer<'_> {
                 .borders(Borders::BOTTOM)
                 .border_style(Style::default().fg(
                     if matches!(self.focus, Focus::Diff | Focus::Editor) {
-                        BLUE
+                        theme().blue
                     } else {
-                        BORDER
+                        theme().border
                     },
                 ))
-                .style(Style::default().bg(SURFACE)),
+                .style(Style::default().bg(theme().surface)),
             parts[0],
         );
         let right_width = right_header
@@ -245,13 +254,13 @@ impl Renderer<'_> {
                 ..parts[0]
             });
         f.render_widget(
-            Paragraph::new(Line::from(left_header)).style(Style::default().bg(SURFACE)),
+            Paragraph::new(Line::from(left_header)).style(Style::default().bg(theme().surface)),
             header_columns[0],
         );
         f.render_widget(
             Paragraph::new(Line::from(right_header))
                 .alignment(ratatui::layout::Alignment::Right)
-                .style(Style::default().bg(SURFACE)),
+                .style(Style::default().bg(theme().surface)),
             header_columns[1],
         );
         // A one-column gutter for the scrollbar, only while the file overflows.
@@ -281,8 +290,8 @@ impl Renderer<'_> {
                 .end_symbol(None)
                 .track_symbol(Some("\u{2502}"))
                 .thumb_symbol("\u{2588}")
-                .track_style(Style::default().fg(BORDER).bg(BG))
-                .thumb_style(Style::default().fg(MUTED).bg(BG)),
+                .track_style(Style::default().fg(theme().border).bg(theme().bg))
+                .thumb_style(Style::default().fg(theme().muted).bg(theme().bg)),
             a,
             &mut state,
         );
@@ -358,7 +367,7 @@ impl Renderer<'_> {
                 let kind = if self.editor.mode == EditorMode::Suggestion {
                     "SUGGESTION"
                 } else {
-                    "COMMENT"
+                    "theme().comment"
                 };
                 let title = if let Some(key) = &self.editor.editing_key {
                     let location = self
@@ -394,7 +403,10 @@ impl Renderer<'_> {
             }
         }
         self.pane.row_map = map;
-        f.render_widget(Paragraph::new(lines).style(Style::default().bg(BG)), a);
+        f.render_widget(
+            Paragraph::new(lines).style(Style::default().bg(theme().bg)),
+            a,
+        );
     }
 
     fn append_editor<'a>(
@@ -407,7 +419,7 @@ impl Renderer<'_> {
         lines.push(editor_card_line(
             vec![Span::styled(
                 format!("╭─ {title}"),
-                Style::default().fg(COMMENT).bg(COMMENT_BG),
+                Style::default().fg(theme().comment).bg(theme().comment_bg),
             )],
             width,
             EDITOR_PREFIX_WIDTH,
@@ -424,7 +436,7 @@ impl Renderer<'_> {
             let edit_line = &self.editor.text[start..end];
             let mut editor_spans = vec![Span::styled(
                 "┃ ",
-                Style::default().fg(COMMENT).bg(COMMENT_BG),
+                Style::default().fg(theme().comment).bg(theme().comment_bg),
             )];
             let mut code_spans = syntax
                 .as_ref()
@@ -441,7 +453,7 @@ impl Renderer<'_> {
                             spans,
                             start - logical_start,
                             end - logical_start,
-                            COMMENT_BG,
+                            theme().comment_bg,
                         )
                     })
                 })
@@ -449,7 +461,7 @@ impl Renderer<'_> {
             if code_spans.is_empty() && !edit_line.is_empty() {
                 code_spans.push(Span::styled(
                     edit_line.to_owned(),
-                    Style::default().fg(TEXT).bg(COMMENT_BG),
+                    Style::default().fg(theme().text).bg(theme().comment_bg),
                 ));
             }
             if index == cursor_row {
@@ -459,7 +471,7 @@ impl Renderer<'_> {
                     .saturating_sub(start)
                     .min(edit_line.len());
                 let cursor_column = edit_line[..cursor_column].chars().count();
-                apply_block_cursor(&mut code_spans, 0, cursor_column, COMMENT_BG);
+                apply_block_cursor(&mut code_spans, 0, cursor_column, theme().comment_bg);
             }
             editor_spans.extend(code_spans);
             lines.push(editor_card_line(editor_spans, width, EDITOR_PREFIX_WIDTH));
@@ -468,7 +480,7 @@ impl Renderer<'_> {
         lines.push(editor_card_line(
             vec![Span::styled(
                 "╰─ Enter save · Shift+Enter newline · Esc cancel",
-                Style::default().fg(MUTED).bg(COMMENT_BG),
+                Style::default().fg(theme().muted).bg(theme().comment_bg),
             )],
             width,
             EDITOR_PREFIX_WIDTH,
@@ -478,55 +490,60 @@ impl Renderer<'_> {
 
     fn diff_line<'a>(&self, l: &'a DiffLine, p: usize, width: usize) -> Line<'a> {
         let base_bg = match l.kind {
-            LineKind::Add => GREEN_BG,
-            LineKind::Remove => RED_BG,
-            LineKind::Hunk => HUNK_BG,
-            _ => BG,
+            LineKind::Add => theme().green_bg,
+            LineKind::Remove => theme().red_bg,
+            LineKind::Hunk => theme().hunk_bg,
+            _ => theme().bg,
         };
         let code_bg = if self.visual_line_selected(p) {
-            SELECT_BG
+            theme().select_bg
         } else {
             base_bg
         };
         let sign = if self.in_range(p) {
-            Span::styled("▌", Style::default().fg(BLUE))
+            Span::styled("▌", Style::default().fg(theme().blue))
         } else if self.annotated(p) {
-            Span::styled("▌", Style::default().fg(COMMENT))
+            Span::styled("▌", Style::default().fg(theme().comment))
         } else {
             Span::raw(" ")
         };
         let old = l.old.map_or("    ".into(), |v| format!("{v:>4}"));
         let new = l.new.map_or("    ".into(), |v| format!("{v:>4}"));
         let marker = match l.kind {
-            LineKind::Add => Style::default().fg(GREEN),
-            LineKind::Remove => Style::default().fg(RED),
-            _ => Style::default().fg(MUTED),
+            LineKind::Add => Style::default().fg(theme().green),
+            LineKind::Remove => Style::default().fg(theme().red),
+            _ => Style::default().fg(theme().muted),
         };
         let mut spans = vec![
             sign,
-            Span::styled(format!("{old} {new} "), Style::default().fg(MUTED)),
+            Span::styled(format!("{old} {new} "), Style::default().fg(theme().muted)),
             Span::styled(format!("{} ", l.marker()), marker),
         ];
         if l.kind == LineKind::Hunk {
             let re = Regex::new(r"^(@@.*?@@)(.*)$").unwrap();
             if let Some(c) = re.captures(&l.text) {
-                spans.push(Span::styled(c[1].to_string(), Style::default().fg(BLUE)));
-                spans.push(Span::styled(c[2].to_string(), Style::default().fg(MUTED)));
+                spans.push(Span::styled(
+                    c[1].to_string(),
+                    Style::default().fg(theme().blue),
+                ));
+                spans.push(Span::styled(
+                    c[2].to_string(),
+                    Style::default().fg(theme().muted),
+                ));
             } else {
-                spans.push(Span::styled(l.text.clone(), Style::default().fg(BLUE)));
+                spans.push(Span::styled(
+                    l.text.clone(),
+                    Style::default().fg(theme().blue),
+                ));
             }
         } else if l.syntax.is_empty() {
-            spans.push(Span::styled(l.text.clone(), Style::default().fg(TEXT)));
+            spans.push(Span::styled(
+                l.text.clone(),
+                Style::default().fg(theme().text),
+            ));
         } else {
             for s in &l.syntax {
-                let mut st = Style::default().fg(Color::Rgb(s.rgb.0, s.rgb.1, s.rgb.2));
-                if s.bold {
-                    st = st.add_modifier(Modifier::BOLD)
-                }
-                if s.italic {
-                    st = st.add_modifier(Modifier::ITALIC)
-                }
-                spans.push(Span::styled(s.text.clone(), st));
+                spans.push(Span::styled(s.text.clone(), theme().syntax(s)));
             }
         }
         for (index, span) in spans.iter_mut().enumerate() {
@@ -680,12 +697,12 @@ fn editor_card_line<'a>(mut card: Vec<Span<'a>>, width: usize, prefix_width: usi
     if rendered < card_width {
         card.push(Span::styled(
             " ".repeat(card_width - rendered),
-            Style::default().bg(COMMENT_BG),
+            Style::default().bg(theme().comment_bg),
         ));
     }
     let mut spans = vec![Span::styled(
         " ".repeat(prefix_width.min(width)),
-        Style::default().bg(BG),
+        Style::default().bg(theme().bg),
     )];
     spans.extend(card);
     Line::from(spans)

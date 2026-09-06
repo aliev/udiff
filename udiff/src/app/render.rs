@@ -1,21 +1,21 @@
-use super::{BG, BLUE, COMMENT, COMMENT_BG, GREEN, GREEN_BG, RED, TEXT};
 use crate::{
     comment::{Comment, CommentBody},
     highlight::highlight_source,
     model::{FileStatus, SyntaxSpan},
+    theme::theme,
 };
 use ratatui::{
-    style::{Color, Modifier, Style},
+    style::{Color, Style},
     text::{Line, Span},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 pub(super) fn file_status_spans(status: FileStatus) -> Vec<Span<'static>> {
     match status {
-        FileStatus::Added => vec![Span::styled("+ ", Style::default().fg(GREEN))],
-        FileStatus::Deleted => vec![Span::styled("− ", Style::default().fg(RED))],
-        FileStatus::Modified => vec![Span::styled("~ ", Style::default().fg(BLUE))],
-        FileStatus::Renamed => vec![Span::styled("→ ", Style::default().fg(BLUE))],
+        FileStatus::Added => vec![Span::styled("+ ", Style::default().fg(theme().green))],
+        FileStatus::Deleted => vec![Span::styled("− ", Style::default().fg(theme().red))],
+        FileStatus::Modified => vec![Span::styled("~ ", Style::default().fg(theme().blue))],
+        FileStatus::Renamed => vec![Span::styled("→ ", Style::default().fg(theme().blue))],
     }
 }
 
@@ -76,8 +76,14 @@ pub(super) fn inline_comment_lines(
             };
             let mut card = crop_spans(
                 vec![
-                    Span::styled(lead, Style::default().fg(COMMENT).bg(COMMENT_BG)),
-                    Span::styled(text_line, Style::default().fg(TEXT).bg(COMMENT_BG)),
+                    Span::styled(
+                        lead,
+                        Style::default().fg(theme().comment).bg(theme().comment_bg),
+                    ),
+                    Span::styled(
+                        text_line,
+                        Style::default().fg(theme().text).bg(theme().comment_bg),
+                    ),
                 ],
                 0,
                 card_width,
@@ -89,12 +95,12 @@ pub(super) fn inline_comment_lines(
             if visible < card_width {
                 card.push(Span::styled(
                     " ".repeat(card_width - visible),
-                    Style::default().bg(COMMENT_BG),
+                    Style::default().bg(theme().comment_bg),
                 ));
             }
             let mut spans = vec![Span::styled(
                 " ".repeat(prefix_width),
-                Style::default().bg(BG),
+                Style::default().bg(theme().bg),
             )];
             spans.extend(card);
             Line::from(spans)
@@ -115,11 +121,11 @@ fn inline_suggestion_lines(
     let mut lines = vec![review_card_line(
         vec![Span::styled(
             format!("┃ {label}"),
-            Style::default().fg(GREEN).bg(GREEN_BG),
+            Style::default().fg(theme().green).bg(theme().green_bg),
         )],
         prefix_width,
         card_width,
-        GREEN_BG,
+        theme().green_bg,
     )];
     let available = card_width.saturating_sub(4).max(1);
     let highlighted = highlight_source(&comment.path, replacement);
@@ -132,17 +138,27 @@ fn inline_suggestion_lines(
             let lead = if first { "┃ + " } else { "┃   " };
             let mut code = highlighted
                 .get(line_number)
-                .map(|syntax| styled_syntax_spans(syntax, offset, offset + part.len(), GREEN_BG))
+                .map(|syntax| {
+                    styled_syntax_spans(syntax, offset, offset + part.len(), theme().green_bg)
+                })
                 .unwrap_or_default();
             if code.is_empty() && !part.is_empty() {
                 code.push(Span::styled(
                     part.to_owned(),
-                    Style::default().fg(TEXT).bg(GREEN_BG),
+                    Style::default().fg(theme().text).bg(theme().green_bg),
                 ));
             }
-            let mut row = vec![Span::styled(lead, Style::default().fg(GREEN).bg(GREEN_BG))];
+            let mut row = vec![Span::styled(
+                lead,
+                Style::default().fg(theme().green).bg(theme().green_bg),
+            )];
             row.extend(code);
-            lines.push(review_card_line(row, prefix_width, card_width, GREEN_BG));
+            lines.push(review_card_line(
+                row,
+                prefix_width,
+                card_width,
+                theme().green_bg,
+            ));
             if rest.is_empty() {
                 break;
             }
@@ -167,18 +183,9 @@ pub(super) fn styled_syntax_spans(
         let overlap_start = start.max(offset);
         let overlap_end = end.min(span_end);
         if overlap_start < overlap_end {
-            let mut style = Style::default()
-                .fg(Color::Rgb(span.rgb.0, span.rgb.1, span.rgb.2))
-                .bg(background);
-            if span.bold {
-                style = style.add_modifier(Modifier::BOLD);
-            }
-            if span.italic {
-                style = style.add_modifier(Modifier::ITALIC);
-            }
             output.push(Span::styled(
                 span.text[overlap_start - offset..overlap_end - offset].to_owned(),
-                style,
+                theme().syntax(span).bg(background),
             ));
         }
         offset = span_end;
@@ -208,7 +215,7 @@ fn review_card_line(
     }
     let mut output = vec![Span::styled(
         " ".repeat(prefix_width),
-        Style::default().bg(BG),
+        Style::default().bg(theme().bg),
     )];
     output.extend(card);
     Line::from(output)

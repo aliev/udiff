@@ -1,4 +1,5 @@
-use super::{BG, MUTED, SELECT_BG, TAB_WIDTH, TEXT, editor::next_boundary};
+use super::{TAB_WIDTH, editor::next_boundary};
+use crate::theme::theme;
 use crate::{
     comment::Comment,
     model::{DiffLine, FileDiff, LineKind},
@@ -59,7 +60,7 @@ pub(super) fn apply_block_cursor<'a>(
                         cursor,
                         Style::default()
                             .fg(background)
-                            .bg(TEXT)
+                            .bg(theme().text)
                             .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(after, style),
@@ -74,7 +75,7 @@ pub(super) fn apply_block_cursor<'a>(
             " ",
             Style::default()
                 .fg(background)
-                .bg(TEXT)
+                .bg(theme().text)
                 .add_modifier(Modifier::BOLD),
         ));
     }
@@ -133,7 +134,10 @@ pub(super) fn wrap_code_line(
         .iter()
         .map(|span| UnicodeWidthStr::width(span.content.as_ref()))
         .sum::<usize>();
-    let background = prefix.first().and_then(|span| span.style.bg).unwrap_or(BG);
+    let background = prefix
+        .first()
+        .and_then(|span| span.style.bg)
+        .unwrap_or(theme().bg);
     let available = width.saturating_sub(prefix_width);
     if available == 0 {
         let mut unwrapped = prefix;
@@ -191,7 +195,10 @@ fn continuation_prefix(
     match marker_column.filter(|column| *column < prefix_width) {
         Some(column) => vec![
             filler(column),
-            Span::styled(WRAP_MARKER, Style::default().fg(MUTED).bg(background)),
+            Span::styled(
+                WRAP_MARKER,
+                Style::default().fg(theme().muted).bg(background),
+            ),
             filler(prefix_width - column - 1),
         ],
         None => vec![filler(prefix_width)],
@@ -291,11 +298,11 @@ pub(super) fn apply_character_selection<'a>(
         for character in span.content.chars() {
             let style = if cursor == Some(column) {
                 Style::default()
-                    .fg(BG)
-                    .bg(TEXT)
+                    .fg(theme().bg)
+                    .bg(theme().text)
                     .add_modifier(Modifier::BOLD)
             } else if (start..=end).contains(&column) {
-                span.style.bg(SELECT_BG)
+                span.style.bg(theme().select_bg)
             } else {
                 span.style
             };

@@ -1,5 +1,5 @@
 use super::{
-    BLUE, COMMENT, Focus, GREEN, MUTED, RED, SURFACE, TEXT,
+    Focus,
     comment_editor::{CommentEditor, Mode as EditorMode},
     diff_pane::DiffPane,
     file_tree::FileTree,
@@ -7,6 +7,7 @@ use super::{
     session::Session,
     view_helpers::anchor_position,
 };
+use crate::theme::theme;
 use ratatui::{
     Frame,
     layout::Rect,
@@ -54,16 +55,21 @@ impl Statusline {
         let width = area.width as usize;
         let (mut left, right) = if focus == Focus::Filter {
             let prompt = vec![
-                Span::styled(" /", Style::default().fg(BLUE).add_modifier(Modifier::BOLD)),
-                Span::styled(tree.filter().to_owned(), Style::default().fg(TEXT)),
-                Span::styled(" ", Style::default().bg(TEXT)),
+                Span::styled(
+                    " /",
+                    Style::default()
+                        .fg(theme().blue)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(tree.filter().to_owned(), Style::default().fg(theme().text)),
+                Span::styled(" ", Style::default().bg(theme().text)),
             ];
             let right = if tree.no_match() {
-                Span::styled(" no matches ", Style::default().fg(RED))
+                Span::styled(" no matches ", Style::default().fg(theme().red))
             } else {
                 Span::styled(
                     " Enter accept · Esc cancel · Ctrl+U clear ",
-                    Style::default().fg(MUTED),
+                    Style::default().fg(theme().muted),
                 )
             };
             (prompt, right)
@@ -74,16 +80,18 @@ impl Statusline {
                     && anchor_position(current, comment) == Some(pane.cursor)
             });
             let (mode, color) = match focus {
-                Focus::Files => (" FILES ", COMMENT),
-                Focus::Editor if editor.mode == EditorMode::Suggestion => (" SUGGESTION ", GREEN),
-                Focus::Editor => (" COMMENT ", GREEN),
-                _ if pane.visual_mode.is_some() => (" VISUAL ", COMMENT),
-                _ if pane.range_anchor.is_some() => (" REVIEW SELECT ", BLUE),
-                _ if active_comment.is_some_and(|comment| comment.body.is_suggestion()) => {
-                    (" SUGGESTION ", GREEN)
+                Focus::Files => (" FILES ", theme().comment),
+                Focus::Editor if editor.mode == EditorMode::Suggestion => {
+                    (" SUGGESTION ", theme().green)
                 }
-                _ if active_comment.is_some() => (" COMMENT ", COMMENT),
-                _ => (" NORMAL ", BLUE),
+                Focus::Editor => (" theme().comment ", theme().green),
+                _ if pane.visual_mode.is_some() => (" VISUAL ", theme().comment),
+                _ if pane.range_anchor.is_some() => (" REVIEW SELECT ", theme().blue),
+                _ if active_comment.is_some_and(|comment| comment.body.is_suggestion()) => {
+                    (" SUGGESTION ", theme().green)
+                }
+                _ if active_comment.is_some() => (" theme().comment ", theme().comment),
+                _ => (" NORMAL ", theme().blue),
             };
             let compact = width < COMPACT_WIDTH;
             let right = if let Some((message, shown_at)) = &self.notice
@@ -155,7 +163,7 @@ impl Statusline {
                     if !pane.vim_command.is_empty() {
                         spans.push(Span::styled(
                             format!(" {}", pane.vim_command),
-                            Style::default().fg(TEXT),
+                            Style::default().fg(theme().text),
                         ));
                     }
                     if let Some((position, total, number, is_context)) = revision.as_ref() {
@@ -166,12 +174,12 @@ impl Statusline {
                         };
                         spans.push(Span::styled(
                             format!(" · revision {position}/{total} · {identity}"),
-                            Style::default().fg(MUTED),
+                            Style::default().fg(theme().muted),
                         ));
                     }
                     spans
                 },
-                Span::styled(right, Style::default().fg(MUTED)),
+                Span::styled(right, Style::default().fg(theme().muted)),
             )
         };
         let right_width = UnicodeWidthStr::width(right.content.as_ref()).min(width);
@@ -184,7 +192,8 @@ impl Statusline {
         left.push(Span::raw(" ".repeat(left_width.saturating_sub(rendered))));
         left.push(right);
         frame.render_widget(
-            Paragraph::new(Line::from(left)).style(Style::default().fg(MUTED).bg(SURFACE)),
+            Paragraph::new(Line::from(left))
+                .style(Style::default().fg(theme().muted).bg(theme().surface)),
             area,
         );
     }

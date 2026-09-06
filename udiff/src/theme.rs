@@ -1,0 +1,262 @@
+//! Appearance modes. One palette is resolved from the environment at startup
+//! and every colour in the interface comes from it.
+
+use ratatui::style::{Color, Modifier, Style};
+use std::sync::OnceLock;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Mode {
+    Dark,
+    Light,
+    Mono,
+}
+
+/// Which appearance the environment asks for. Pure so the rules can be tested
+/// without touching the real environment.
+pub(crate) fn resolve(
+    no_color: Option<&str>,
+    udiff_theme: Option<&str>,
+    colorfgbg: Option<&str>,
+) -> Mode {
+    // https://no-color.org: any non-empty value suppresses colour.
+    if no_color.is_some_and(|value| !value.is_empty()) {
+        return Mode::Mono;
+    }
+    match udiff_theme.map(str::trim) {
+        Some("dark") => return Mode::Dark,
+        Some("light") => return Mode::Light,
+        Some("mono") => return Mode::Mono,
+        // An unreadable value is ignored rather than fatal: a typo in a shell
+        // profile must not stop a review.
+        _ => {}
+    }
+    // COLORFGBG is "foreground;background", sometimes with a middle field.
+    // Colour indexes 7 and 15 are the light backgrounds.
+    let background = colorfgbg
+        .and_then(|value| value.rsplit(';').next())
+        .and_then(|last| last.trim().parse::<u8>().ok());
+    match background {
+        Some(7 | 15) => Mode::Light,
+        _ => Mode::Dark,
+    }
+}
+
+pub(crate) struct Palette {
+    pub(crate) bg: Color,
+    pub(crate) surface: Color,
+    pub(crate) border: Color,
+    pub(crate) text: Color,
+    pub(crate) muted: Color,
+    pub(crate) blue: Color,
+    pub(crate) green: Color,
+    pub(crate) green_bg: Color,
+    pub(crate) red: Color,
+    pub(crate) red_bg: Color,
+    pub(crate) hunk_bg: Color,
+    pub(crate) comment: Color,
+    pub(crate) comment_bg: Color,
+    pub(crate) select_bg: Color,
+    /// Name of the syntect theme whose colours suit this palette.
+    pub(crate) syntect_theme: &'static str,
+    /// Whether colour carries no meaning, so emphasis has to use attributes.
+    pub(crate) monochrome: bool,
+}
+
+impl Palette {
+    /// Syntect writes its own RGB into every span, which is a second source of
+    /// colour. Monochrome drops it and keeps the weight.
+    pub(crate) fn syntax(&self, span: &crate::model::SyntaxSpan) -> Style {
+        let mut style = Style::default();
+        if !self.monochrome {
+            style = style.fg(Color::Rgb(span.rgb.0, span.rgb.1, span.rgb.2));
+        }
+        if span.bold {
+            style = style.add_modifier(Modifier::BOLD);
+        }
+        if span.italic {
+            style = style.add_modifier(Modifier::ITALIC);
+        }
+        style
+    }
+
+    pub(crate) fn for_mode(mode: Mode) -> Self {
+        match mode {
+            Mode::Dark => Self::dark(),
+            Mode::Light => Self::light(),
+            Mode::Mono => Self::mono(),
+        }
+    }
+
+    fn dark() -> Self {
+        Self {
+            bg: Color::Rgb(15, 18, 25),
+            surface: Color::Rgb(21, 25, 35),
+            border: Color::Rgb(45, 51, 66),
+            text: Color::Rgb(220, 224, 232),
+            muted: Color::Rgb(122, 132, 153),
+            blue: Color::Rgb(122, 162, 247),
+            green: Color::Rgb(158, 206, 106),
+            green_bg: Color::Rgb(24, 45, 35),
+            red: Color::Rgb(247, 118, 142),
+            red_bg: Color::Rgb(54, 31, 40),
+            hunk_bg: Color::Rgb(28, 38, 58),
+            comment: Color::Rgb(224, 175, 104),
+            comment_bg: Color::Rgb(47, 39, 28),
+            select_bg: Color::Rgb(38, 49, 70),
+            syntect_theme: "base16-ocean.dark",
+            monochrome: false,
+        }
+    }
+
+    fn light() -> Self {
+        Self {
+            bg: Color::Rgb(255, 255, 255),
+            surface: Color::Rgb(246, 248, 250),
+            border: Color::Rgb(208, 215, 222),
+            text: Color::Rgb(31, 35, 40),
+            muted: Color::Rgb(101, 109, 118),
+            blue: Color::Rgb(9, 105, 218),
+            green: Color::Rgb(26, 127, 55),
+            green_bg: Color::Rgb(218, 251, 225),
+            red: Color::Rgb(207, 34, 46),
+            red_bg: Color::Rgb(255, 235, 233),
+            hunk_bg: Color::Rgb(221, 244, 255),
+            comment: Color::Rgb(154, 103, 0),
+            comment_bg: Color::Rgb(255, 248, 197),
+            select_bg: Color::Rgb(221, 232, 244),
+            syntect_theme: "InspiredGitHub",
+            monochrome: false,
+        }
+    }
+
+    fn mono() -> Self {
+        Self {
+            bg: Color::Reset,
+            surface: Color::Reset,
+            border: Color::Reset,
+            text: Color::Reset,
+            muted: Color::Reset,
+            blue: Color::Reset,
+            green: Color::Reset,
+            green_bg: Color::Reset,
+            red: Color::Reset,
+            red_bg: Color::Reset,
+            hunk_bg: Color::Reset,
+            comment: Color::Reset,
+            comment_bg: Color::Reset,
+            select_bg: Color::Reset,
+            // Monochrome never reaches syntect's colours, so the name only has
+            // to be one that loads.
+            syntect_theme: "base16-ocean.dark",
+            monochrome: true,
+        }
+    }
+
+    fn from_environment() -> Self {
+        let read = |name: &str| std::env::var(name).ok();
+        Self::for_mode(resolve(
+            read("NO_COLOR").as_deref(),
+            read("UDIFF_THEME").as_deref(),
+            read("COLORFGBG").as_deref(),
+        ))
+    }
+}
+
+static PALETTE: OnceLock<Palette> = OnceLock::new();
+
+/// Resolves the palette before anything can read it. Lazy initialisation would
+/// reach the same answer, but an explicit call keeps the ordering visible.
+pub(crate) fn init() {
+    let _ = PALETTE.set(Palette::from_environment());
+}
+
+pub(crate) fn theme() -> &'static Palette {
+    PALETTE.get_or_init(|| {
+        // The suite asserts exact colours, so it must not change behaviour when
+        // a developer has UDIFF_THEME or NO_COLOR exported.
+        if cfg!(test) {
+            Palette::for_mode(Mode::Dark)
+        } else {
+            Palette::from_environment()
+        }
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_color_wins_over_every_other_signal() {
+        assert_eq!(resolve(Some("1"), Some("light"), Some("15;7")), Mode::Mono);
+    }
+
+    #[test]
+    fn an_empty_no_color_is_not_a_signal() {
+        assert_eq!(resolve(Some(""), Some("light"), None), Mode::Light);
+    }
+
+    #[test]
+    fn an_unknown_theme_name_falls_through_instead_of_failing() {
+        assert_eq!(resolve(None, Some("solarized"), Some("15;7")), Mode::Light);
+        assert_eq!(resolve(None, Some("solarized"), None), Mode::Dark);
+    }
+
+    #[test]
+    fn colorfgbg_reads_its_last_field_as_the_background() {
+        assert_eq!(resolve(None, None, Some("15;7")), Mode::Light);
+        assert_eq!(resolve(None, None, Some("0;15")), Mode::Light);
+        assert_eq!(resolve(None, None, Some("15;0")), Mode::Dark);
+        assert_eq!(resolve(None, None, Some("15;default")), Mode::Dark);
+        assert_eq!(resolve(None, None, Some("")), Mode::Dark);
+    }
+
+    #[test]
+    fn nothing_configured_means_dark() {
+        assert_eq!(resolve(None, None, None), Mode::Dark);
+    }
+
+    #[test]
+    fn each_mode_carries_its_own_syntax_theme() {
+        assert_eq!(
+            Palette::for_mode(Mode::Dark).syntect_theme,
+            "base16-ocean.dark"
+        );
+        assert_eq!(
+            Palette::for_mode(Mode::Light).syntect_theme,
+            "InspiredGitHub"
+        );
+        assert!(!Palette::for_mode(Mode::Light).monochrome);
+        assert!(Palette::for_mode(Mode::Mono).monochrome);
+    }
+
+    #[test]
+    fn colour_modes_paint_syntax_and_monochrome_keeps_only_its_attributes() {
+        let span = crate::model::SyntaxSpan {
+            text: "fn".into(),
+            rgb: (200, 100, 50),
+            bold: true,
+            italic: false,
+        };
+        let dark = Palette::for_mode(Mode::Dark).syntax(&span);
+        assert_eq!(dark.fg, Some(Color::Rgb(200, 100, 50)));
+        assert!(dark.add_modifier.contains(Modifier::BOLD));
+
+        let mono = Palette::for_mode(Mode::Mono).syntax(&span);
+        assert_eq!(mono.fg, None);
+        assert!(mono.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn monochrome_defers_every_colour_to_the_terminal() {
+        let palette = Palette::for_mode(Mode::Mono);
+        assert_eq!(palette.bg, Color::Reset);
+        assert_eq!(palette.text, Color::Reset);
+        assert_eq!(palette.select_bg, Color::Reset);
+    }
+
+    #[test]
+    fn tests_never_read_the_ambient_environment() {
+        assert_eq!(theme().bg, Palette::for_mode(Mode::Dark).bg);
+    }
+}

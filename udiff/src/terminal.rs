@@ -1,6 +1,7 @@
-use crate::app::{App, BG, Command, EditorTarget, Effect, MUTED, TEXT};
+use crate::app::{App, Command, EditorTarget, Effect};
 #[cfg(feature = "watch")]
 use crate::input::{WatchInputEvent, WatchSource};
+use crate::theme::theme;
 use anyhow::{Context, Result};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use crossterm::{
@@ -147,12 +148,15 @@ fn apply_watch_event(app: &mut Option<App>, event: WatchInputEvent) {
 
 fn draw_waiting(frame: &mut Frame, watched: Option<&Path>) {
     let area = frame.area();
-    frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
+    frame.render_widget(
+        Block::default().style(Style::default().bg(theme().bg)),
+        area,
+    );
     let panel = waiting_panel(area);
     let mut lines = vec![ratatui::text::Line::from(ratatui::text::Span::styled(
         "\u{3bc}diff",
         Style::default()
-            .fg(TEXT)
+            .fg(theme().text)
             .add_modifier(ratatui::style::Modifier::BOLD),
     ))];
     if let Some(root) = watched {
@@ -167,7 +171,7 @@ fn draw_waiting(frame: &mut Frame, watched: Option<&Path>) {
     frame.render_widget(
         Paragraph::new(lines)
             .alignment(Alignment::Center)
-            .style(Style::default().fg(MUTED).bg(BG)),
+            .style(Style::default().fg(theme().muted).bg(theme().bg)),
         panel,
     );
 }

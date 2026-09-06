@@ -4,6 +4,7 @@ mod highlight;
 mod input;
 mod model;
 mod terminal;
+mod theme;
 
 use anyhow::Result;
 use app::App;
@@ -51,6 +52,7 @@ fn main() {
 }
 
 fn run() -> Result<i32> {
+    theme::init();
     match InputMode::parse(std::env::args().skip(1))? {
         #[cfg(feature = "watch")]
         InputMode::Watch(root) => view_watch(root),
