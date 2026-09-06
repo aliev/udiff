@@ -69,7 +69,7 @@ each mode answers in its own way:
 
 | Constructor | Colour modes | Monochrome |
 |---|---|---|
-| `cursor()` | foreground and background swapped | `REVERSED` |
+| `cursor()` | foreground and background swapped | `UNDERLINED` and bold |
 | `selected(base)` | `base.bg(select_bg)` | `base` plus `REVERSED` |
 | `chip(fg)` | `fg` on `select_bg`, bold | `REVERSED` and bold |
 | `caret()` | background `text` | `REVERSED` |
@@ -79,6 +79,11 @@ Visual-line selection is the one case that does not fit, because
 the row background and its trailing filler. Rather than turn that colour into a
 `Style` through three helper signatures, monochrome applies `REVERSED` to the
 row's spans as a final pass in `diff_line`. The colour plumbing is untouched.
+
+This is why the monochrome cursor underlines rather than reverses. `Modifier`
+is a bitflag, so a reversed cursor inside a reversed row would merge into the
+row and disappear; an underline stays visible against both a plain row and a
+reversed one.
 
 Add and remove lines keep their `+` and `-` gutter markers, comment cards keep
 their `┃` bar and `Comment #N` label, and the review meter already uses two
