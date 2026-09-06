@@ -304,12 +304,12 @@ impl FileTree {
                 Style::default().bg(theme().bg)
             })
             .highlight_symbol("▌")
-            .node_closed_symbol("▸")
-            .node_open_symbol("▾")
-            // A space, not nothing: a leaf still has to reserve the expander
-            // cell, or a file that gains a comment shifts a column away from
-            // its siblings.
-            .node_no_children_symbol(" ");
+            // Every expander is two cells wide, glyph plus its space, so a
+            // folder and a file open the same distance from their label and a
+            // leaf still reserves the cell a commented file would use.
+            .node_closed_symbol("▸ ")
+            .node_open_symbol("▾ ")
+            .node_no_children_symbol("  ");
         frame.render_stateful_widget(tree, list_area, &mut self.state);
     }
 
@@ -359,16 +359,15 @@ impl FileTree {
                 Style::default().fg(theme().muted),
             ));
         } else {
-            let label = format!("  {reviewed}/{total} \u{b7} {comments}");
-            spans.push(Span::raw(" "));
-            // The meter only gets the columns the counters do not need, so a
-            // narrow explorer drops it rather than truncating the numbers.
-            spans.extend(progress_spans(
-                reviewed,
-                total,
-                meter_width(inner, UnicodeWidthStr::width(label.as_str())),
-            ));
+            // Counters first: an empty meter is nearly invisible and would
+            // open the row with a void.
+            let label = format!(" {reviewed}/{total} \u{b7} {comments}");
+            let meter = meter_width(inner, UnicodeWidthStr::width(label.as_str()));
             spans.push(Span::styled(label, Style::default().fg(theme().muted)));
+            if meter > 0 {
+                spans.push(Span::raw("  "));
+                spans.extend(progress_spans(reviewed, total, meter));
+            }
         }
         frame.render_widget(
             Paragraph::new(Line::from(spans))
@@ -400,7 +399,7 @@ impl FileTree {
 /// Columns left for the review meter once the counters have taken theirs.
 /// Returns `0` when what remains is too small to read as a meter.
 fn meter_width(inner: usize, label_width: usize) -> usize {
-    let free = inner.saturating_sub(label_width + 1).min(10);
+    let free = inner.saturating_sub(label_width + 2).min(10);
     if free < 3 { 0 } else { free }
 }
 
@@ -412,7 +411,7 @@ fn progress_spans(reviewed: usize, total: usize, width: usize) -> Vec<Span<'stat
             Style::default().fg(theme().green),
         ),
         Span::styled(
-            "\u{2501}".repeat(width - filled),
+            "\u{2500}".repeat(width - filled),
             Style::default().fg(theme().border),
         ),
     ]
@@ -438,7 +437,6 @@ fn file_item(file: usize, view: &View<'_>) -> TreeItem<'static, NodeId> {
         }),
     )];
     label.extend(file_status_spans(diff.status));
-    label.push(Span::raw(" "));
     label.push(Span::styled(
         name.to_owned(),
         Style::default()
@@ -553,6 +551,19 @@ mod tests {
             focused: true,
             divided: true,
         }
+    }
+
+    #[test]
+    fn the_review_meter_shows_progress_in_its_glyphs_not_only_its_colour() {
+        let spans = progress_spans(1, 4, 8);
+        let filled = spans[0].content.chars().count();
+        let empty = spans[1].content.chars().count();
+        assert_eq!((filled, empty), (2, 6));
+        assert_ne!(
+            spans[0].content.chars().next(),
+            spans[1].content.chars().next(),
+            "a meter drawn in one glyph reads as a plain rule when empty"
+        );
     }
 
     #[test]

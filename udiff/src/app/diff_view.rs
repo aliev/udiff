@@ -194,13 +194,13 @@ impl Renderer<'_> {
         left_header.extend(crate::app::render::file_status_spans(file.status));
         left_header.extend([
             Span::styled(
-                format!("  {shown_path}"),
+                shown_path.clone(),
                 Style::default()
                     .fg(theme().text)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("   +{}", file.additions()),
+                format!("  +{}", file.additions()),
                 Style::default().fg(theme().green),
             ),
             Span::styled(
