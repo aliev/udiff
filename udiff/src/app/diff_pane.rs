@@ -1,4 +1,10 @@
-use super::{Focus, comment_editor::CommentEditor, diff_view, session::Session};
+use super::{
+    Focus,
+    comment_editor::CommentEditor,
+    diff_view,
+    rows::{Row, Side, pair},
+    session::Session,
+};
 use crate::model::{DiffLine, FileDiff, LineKind};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Frame, layout::Rect};
@@ -38,6 +44,14 @@ pub struct DiffPane {
     pub wrap: bool,
     /// Columns scrolled past on the left. Always 0 while wrapping.
     pub h_scroll: usize,
+    /// Side-by-side rather than unified. Session-only, like every other view
+    /// preference here.
+    pub split: bool,
+    /// Which pane the cursor sits in. Not read while the view is unified.
+    pub side: Side,
+    /// Pairing for the current file. It does not depend on the mode, so it is
+    /// rebuilt only when the file changes.
+    pub rows: Vec<Row>,
 }
 
 impl DiffPane {
@@ -65,6 +79,12 @@ impl DiffPane {
             row_map: Vec::new(),
             wrap: true,
             h_scroll: 0,
+            split: false,
+            side: Side::Left,
+            rows: files
+                .first()
+                .map(|file| pair(&file.lines))
+                .unwrap_or_default(),
         }
     }
 
@@ -86,6 +106,64 @@ impl DiffPane {
         sidebar_hidden: bool,
     ) {
         diff_view::render(self, frame, area, session, editor, focus, sidebar_hidden);
+    }
+
+    fn row_of(&self, line: usize) -> usize {
+        self.rows
+            .iter()
+            .position(|row| row.holds(line))
+            .unwrap_or(0)
+    }
+
+    /// The side a line belongs to, so entering split does not have to guess.
+    fn side_of(&self, line: usize) -> Side {
+        match self.rows.get(self.row_of(line)) {
+            Some(row) if row.right == Some(line) && row.left != Some(line) => Side::Right,
+            _ => Side::Left,
+        }
+    }
+
+    fn step_row(&mut self, delta: isize, files: &[FileDiff]) {
+        let current = self.row_of(self.cursor) as isize;
+        let last = self.rows.len().saturating_sub(1) as isize;
+        let Some(row) = self
+            .rows
+            .get(current.saturating_add(delta).clamp(0, last) as usize)
+        else {
+            return;
+        };
+        let (row, side) = (*row, self.side);
+        if row.full_width {
+            if let Some(line) = row.left {
+                self.cursor = line;
+            }
+        } else if let Some(line) = row.occupant(side) {
+            self.cursor = line;
+        } else if let Some(line) = row.occupant(side.other()) {
+            // This side has run out; the change continues on the other one.
+            self.side = side.other();
+            self.cursor = line;
+        }
+        let column_max = self.active_lines(files)[self.cursor]
+            .text
+            .chars()
+            .count()
+            .saturating_sub(1);
+        self.visual_col = self.visual_col.min(column_max);
+    }
+
+    /// Crosses to the other pane when the cursor is already at the edge of its
+    /// line, which is where a side-by-side reader expects to leave it.
+    fn cross(&mut self, side: Side) -> bool {
+        if !self.split || self.side == side {
+            return false;
+        }
+        let Some(line) = self.rows[self.row_of(self.cursor)].occupant(side) else {
+            return false;
+        };
+        self.side = side;
+        self.cursor = line;
+        true
     }
 
     pub fn selected_bounds(&self) -> (usize, usize) {
@@ -131,6 +209,7 @@ impl DiffPane {
         }
         self.file_cursors[self.file] = self.cursor;
         self.file = file;
+        self.rows = pair(&files[file].lines);
         let stored = self.file_cursors[file];
         self.cursor = stored.min(self.active_lines(files).len().saturating_sub(1));
         self.scroll = 0;
@@ -247,17 +326,42 @@ impl DiffPane {
         }
         match key.code {
             KeyCode::Char('G') => self.cursor = self.active_lines(files).len().saturating_sub(1),
-            KeyCode::Char('j') | KeyCode::Down if focused => self.move_cursor(1, files),
-            KeyCode::Char('k') | KeyCode::Up if focused => self.move_cursor(-1, files),
+            KeyCode::Char('j') | KeyCode::Down if focused => {
+                if self.split {
+                    self.step_row(1, files);
+                } else {
+                    self.move_cursor(1, files);
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up if focused => {
+                if self.split {
+                    self.step_row(-1, files);
+                } else {
+                    self.move_cursor(-1, files);
+                }
+            }
             KeyCode::Char('w') if focused => {
                 self.wrap = !self.wrap;
                 // Nothing is off to the left once the line folds instead.
                 if self.wrap {
                     self.h_scroll = 0;
+                    self.split = false;
+                }
+            }
+            KeyCode::Char('s') if focused => {
+                self.split = !self.split;
+                if self.split {
+                    // Aligned rows cost one screen row each, so a folded line
+                    // would drift the two sides apart.
+                    self.wrap = false;
+                    self.h_scroll = 0;
+                    self.side = self.side_of(self.cursor);
                 }
             }
             // Vim's own line motions: `^` is the first non-blank, which on
             // indented code is the character you actually want.
+            KeyCode::Char('h') | KeyCode::Left
+                if focused && self.visual_col == 0 && self.cross(Side::Left) => {}
             KeyCode::Char('^') if focused => {
                 let text = &self.active_lines(files)[self.cursor].text;
                 self.visual_col = text
@@ -281,7 +385,9 @@ impl DiffPane {
                     .chars()
                     .count()
                     .saturating_sub(1);
-                self.visual_col = (self.visual_col + 1).min(maximum);
+                if self.visual_col < maximum || !self.cross(Side::Right) {
+                    self.visual_col = (self.visual_col + 1).min(maximum);
+                }
             }
             KeyCode::Char('c') if focused => {
                 self.visual_mode = None;

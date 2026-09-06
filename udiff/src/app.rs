@@ -10,6 +10,7 @@ mod navigation;
 mod render;
 mod review;
 mod revisions;
+mod rows;
 mod search;
 mod session;
 mod statusline;

@@ -1,5 +1,6 @@
 use super::file_tree::Target as SideTarget;
 use super::render::{crop_spans, file_status_spans, inline_comment_lines};
+use super::rows::Side;
 use super::view_helpers::*;
 use super::*;
 use crate::comment::{Comment, CommentBody};
@@ -1788,4 +1789,71 @@ fn caret_and_dollar_move_along_the_line_like_vim() {
     // Not column zero: the first character that is actually there.
     app.key(KeyEvent::new(KeyCode::Char('^'), KeyModifiers::NONE));
     assert_eq!(app.diff_pane.visual_col, 4);
+}
+
+#[test]
+fn walking_down_in_split_stays_on_one_side_until_it_runs_out() {
+    // Two removals replaced by three additions: the left runs out first.
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,3 @@\n-one\n-two\n+one\n+two\n+three\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.cursor, 1, "starts on the first removal");
+    assert_eq!(app.diff_pane.side, Side::Left);
+
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(
+        app.diff_pane.cursor, 2,
+        "the second removal, still on the left"
+    );
+    assert_eq!(app.diff_pane.side, Side::Left);
+
+    // The left has nothing on the next row, so the cursor crosses.
+    app.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.cursor, 5, "the third addition");
+    assert_eq!(app.diff_pane.side, Side::Right);
+}
+
+#[test]
+fn split_and_wrapping_turn_each_other_off() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    assert!(app.diff_pane.wrap, "wrapping is the default");
+
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert!(app.diff_pane.split);
+    assert!(!app.diff_pane.wrap, "aligned rows cost one screen row each");
+
+    app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
+    assert!(app.diff_pane.wrap);
+    assert!(!app.diff_pane.split);
+}
+
+#[test]
+fn entering_split_lands_on_the_side_the_line_belongs_to() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.diff_pane.cursor = 2;
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.side, Side::Right);
+    assert_eq!(app.diff_pane.cursor, 2, "and does not move the cursor");
+
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.cursor, 2);
+}
+
+#[test]
+fn the_edge_of_a_line_steps_across_to_the_other_pane() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('$'), KeyModifiers::NONE));
+
+    app.key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.side, Side::Right);
+    assert_eq!(app.diff_pane.cursor, 2);
+
+    app.key(KeyEvent::new(KeyCode::Char('^'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.side, Side::Left);
+    assert_eq!(app.diff_pane.cursor, 1);
 }
