@@ -84,13 +84,13 @@ impl Statusline {
                 Focus::Editor if editor.mode == EditorMode::Suggestion => {
                     (" SUGGESTION ", theme().green)
                 }
-                Focus::Editor => (" theme().comment ", theme().green),
+                Focus::Editor => (" COMMENT ", theme().green),
                 _ if pane.visual_mode.is_some() => (" VISUAL ", theme().comment),
                 _ if pane.range_anchor.is_some() => (" REVIEW SELECT ", theme().blue),
                 _ if active_comment.is_some_and(|comment| comment.body.is_suggestion()) => {
                     (" SUGGESTION ", theme().green)
                 }
-                _ if active_comment.is_some() => (" theme().comment ", theme().comment),
+                _ if active_comment.is_some() => (" COMMENT ", theme().comment),
                 _ => (" NORMAL ", theme().blue),
             };
             let compact = width < COMPACT_WIDTH;

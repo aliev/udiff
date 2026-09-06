@@ -1223,7 +1223,7 @@ fn comment_editor_recenters_when_its_anchor_starts_at_the_top() {
         .collect::<Vec<_>>();
     let editor_top = screen
         .iter()
-        .position(|row| row.contains("NEW theme().comment · 1 line selected"))
+        .position(|row| row.contains("NEW COMMENT · 1 line selected"))
         .expect("editor title should be visible");
     let editor_bottom = screen
         .iter()
@@ -1422,5 +1422,64 @@ fn monochrome_marks_the_cursor_without_colour() {
     assert!(
         cursor.add_modifier.contains(Modifier::UNDERLINED),
         "with no colour left, the cursor has to be an attribute"
+    );
+}
+
+#[test]
+fn a_file_with_comments_still_lines_up_with_its_siblings() {
+    // A commented file gains a tree expander. Without a matching cell on the
+    // leaves, that arrow shifts the whole row a column away from its siblings.
+    let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\ndiff --git a/src/b.rs b/src/b.rs\n--- a/src/b.rs\n+++ b/src/b.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let comment = Comment {
+        id: "t-001".into(),
+        path: "src/a.rs".into(),
+        excerpt: "new".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(1),
+        new_end: Some(1),
+        anchor_old: None,
+        anchor_new: Some(1),
+        body: CommentBody::Text("note".into()),
+    };
+    let mut app = App::new(parse_unified_diff(diff), vec![comment]);
+    // Wide enough that both panes show; below 64 columns the explorer hides.
+    let width = 100;
+    let mut terminal = Terminal::new(TestBackend::new(width, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let sidebar = super::view::sidebar_width(width, false);
+    let buffer = terminal.backend().buffer();
+
+    let column_of = |name: &str| {
+        (2..12u16)
+            .find_map(|y| {
+                let row = (0..sidebar)
+                    .map(|x| buffer.cell((x, y)).unwrap().symbol())
+                    .collect::<String>();
+                // Count characters, not bytes: the tree glyphs are multi-byte.
+                row.find(name).map(|byte| row[..byte].chars().count())
+            })
+            .unwrap_or_else(|| panic!("{name} was not rendered"))
+    };
+
+    assert_eq!(
+        column_of("a.rs"),
+        column_of("b.rs"),
+        "the commented file must not be indented past its sibling"
+    );
+}
+
+#[test]
+fn the_mode_badge_reads_as_a_word_not_a_colour() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let status: String = (0..60)
+        .map(|x| terminal.backend().buffer().cell((x, 9)).unwrap().symbol())
+        .collect();
+    assert!(
+        status.starts_with(" NORMAL "),
+        "the badge is a label, not a palette lookup: {status:?}"
     );
 }

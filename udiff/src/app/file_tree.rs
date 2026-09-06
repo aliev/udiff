@@ -306,7 +306,10 @@ impl FileTree {
             .highlight_symbol("▌")
             .node_closed_symbol("▸")
             .node_open_symbol("▾")
-            .node_no_children_symbol("");
+            // A space, not nothing: a leaf still has to reserve the expander
+            // cell, or a file that gains a comment shifts a column away from
+            // its siblings.
+            .node_no_children_symbol(" ");
         frame.render_stateful_widget(tree, list_area, &mut self.state);
     }
 

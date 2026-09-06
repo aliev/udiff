@@ -364,7 +364,7 @@ impl Renderer<'_> {
                 let kind = if self.editor.mode == EditorMode::Suggestion {
                     "SUGGESTION"
                 } else {
-                    "theme().comment"
+                    "COMMENT"
                 };
                 let title = if let Some(key) = &self.editor.editing_key {
                     let location = self
