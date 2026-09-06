@@ -291,8 +291,54 @@ fn editor_command_from(editor: &str, target: &EditorTarget) -> Result<ProcessCom
     let mut parts = editor.split_whitespace();
     let program = parts.next().context("$EDITOR is empty")?;
     let mut command = ProcessCommand::new(program);
-    command.args(parts).arg(&target.path);
+    command.args(parts);
+    match target.line.map(|line| (line, line_form(program))) {
+        Some((line, LineForm::Plus)) => {
+            command.arg(format!("+{line}")).arg(&target.path);
+        }
+        Some((line, LineForm::Suffix)) => {
+            command.arg(format!("{}:{line}", target.path));
+        }
+        Some((line, LineForm::Goto)) => {
+            command.arg("--goto").arg(format!("{}:{line}", target.path));
+        }
+        Some((line, LineForm::LineFlag)) => {
+            command
+                .arg("--line")
+                .arg(line.to_string())
+                .arg(&target.path);
+        }
+        // No line, or an editor whose form is unknown: handing `+42` to
+        // something that does not understand it opens a file named `+42`.
+        Some((_, LineForm::Unknown)) | None => {
+            command.arg(&target.path);
+        }
+    }
     Ok(command)
+}
+
+enum LineForm {
+    Plus,
+    Suffix,
+    Goto,
+    LineFlag,
+    Unknown,
+}
+
+/// How an editor wants to be told which line to open at. There is no common
+/// spelling, so this is a list of the ones worth knowing.
+fn line_form(program: &str) -> LineForm {
+    let name = Path::new(program)
+        .file_stem()
+        .map_or(program, |stem| stem.to_str().unwrap_or(program));
+    match name {
+        "vim" | "nvim" | "vi" | "view" | "nano" | "emacs" | "emacsclient" | "kak" => LineForm::Plus,
+        "hx" | "helix" | "subl" | "zed" => LineForm::Suffix,
+        "code" | "code-insiders" | "codium" | "cursor" | "windsurf" => LineForm::Goto,
+        "idea" | "webstorm" | "pycharm" | "goland" | "clion" | "rustrover" | "phpstorm"
+        | "rubymine" => LineForm::LineFlag,
+        _ => LineForm::Unknown,
+    }
 }
 
 #[cfg(test)]
@@ -301,9 +347,63 @@ mod tests {
     use ratatui::{backend::TestBackend, widgets::Paragraph};
 
     #[test]
+    fn each_editor_family_gets_the_form_it_understands() {
+        let target = EditorTarget {
+            path: "src/main.rs".into(),
+            line: Some(42),
+        };
+        let args = |editor: &str| {
+            let command = editor_command_from(editor, &target).unwrap();
+            command
+                .get_args()
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect::<Vec<_>>()
+        };
+
+        assert_eq!(args("vim"), ["+42", "src/main.rs"]);
+        assert_eq!(args("/usr/bin/nvim"), ["+42", "src/main.rs"]);
+        assert_eq!(args("hx"), ["src/main.rs:42"]);
+        assert_eq!(args("code --wait"), ["--wait", "--goto", "src/main.rs:42"]);
+        assert_eq!(args("idea"), ["--line", "42", "src/main.rs"]);
+    }
+
+    #[test]
+    fn an_unknown_editor_is_only_ever_handed_the_path() {
+        // Handing +42 to something that does not understand it opens a file
+        // literally named "+42".
+        let target = EditorTarget {
+            path: "src/main.rs".into(),
+            line: Some(42),
+        };
+        let command = editor_command_from("ed", &target).unwrap();
+        let args = command
+            .get_args()
+            .map(|argument| argument.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(args, ["src/main.rs"]);
+    }
+
+    #[test]
+    fn without_a_line_every_editor_is_handed_the_path_alone() {
+        let target = EditorTarget {
+            path: "src/main.rs".into(),
+            line: None,
+        };
+        for editor in ["vim", "hx", "code", "idea"] {
+            let command = editor_command_from(editor, &target).unwrap();
+            let args = command
+                .get_args()
+                .map(|argument| argument.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(args, ["src/main.rs"], "{editor}");
+        }
+    }
+
+    #[test]
     fn editor_command_preserves_configured_arguments_and_file_path() {
         let target = EditorTarget {
             path: "src/main file.rs".into(),
+            line: None,
         };
         let command = editor_command_from("code --wait", &target).unwrap();
         assert_eq!(command.get_program(), "code");

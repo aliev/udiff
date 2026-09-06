@@ -10,6 +10,10 @@ All notable changes to μdiff are documented in this file. The project uses
 - Readline motions in the comment and suggestion editor: `Ctrl+A` / `Ctrl+E`
   move to the start and end of the line, `Ctrl+K` / `Ctrl+U` kill to the end
   and to the start. `Home` and `End` follow the same rule.
+- `e` opens `$EDITOR` at the line under the cursor for editors that can be told
+  one — Vim, Neovim, Nano, Emacs, Kakoune, Helix, Sublime, Zed, VS Code and its
+  forks, and the JetBrains family. Any other editor still receives only the
+  path.
 
 ## [0.1.0] - 2026-09-06
 

@@ -128,6 +128,7 @@ fn e_requests_opening_the_current_file_in_editor() {
         ))),
         Effect::OpenEditor(EditorTarget {
             path: "src/a.rs".into(),
+            line: Some(1),
         })
     );
 }
@@ -1576,4 +1577,37 @@ fn a_comment_label_is_cut_to_the_explorer_not_to_a_fixed_length() {
     // With room, it appears and is ellipsised to fit.
     assert!(comment_row(120).contains('…'));
     assert!(comment_row(200).contains('…'));
+}
+
+#[test]
+fn opening_an_editor_aims_at_the_new_side_of_the_diff() {
+    let diff =
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -10,3 +10,3 @@\n ctx\n-gone\n+kept\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+
+    // On the context line: its own new-side number.
+    app.diff_pane.cursor = 1;
+    let Effect::OpenEditor(target) = app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE))
+    else {
+        panic!("e opens an editor");
+    };
+    assert_eq!(target.line, Some(10));
+
+    // On a removed line there is no new side, so the nearest one above it
+    // stands in rather than dropping the jump entirely.
+    app.diff_pane.cursor = 2;
+    let Effect::OpenEditor(target) = app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE))
+    else {
+        panic!("e opens an editor");
+    };
+    assert_eq!(target.line, Some(10));
+
+    // On the hunk header there is nothing above it at all, but the header
+    // itself says where the new side starts.
+    app.diff_pane.cursor = 0;
+    let Effect::OpenEditor(target) = app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::NONE))
+    else {
+        panic!("e opens an editor");
+    };
+    assert_eq!(target.line, Some(10));
 }

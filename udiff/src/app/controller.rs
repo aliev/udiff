@@ -6,7 +6,10 @@ use super::{
     diff_pane::KeyAction as DiffKeyAction,
     help::EventState as HelpEventState,
 };
-use crate::{comment::Comment, model::FileDiff};
+use crate::{
+    comment::Comment,
+    model::{FileDiff, LineKind, hunk_ranges},
+};
 use crossterm::event::{Event, KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use std::time::{Duration, Instant};
 
@@ -114,6 +117,7 @@ impl App {
             KeyCode::Char('Y') => self.copy_comments().map_or(Effect::None, Effect::Copy),
             KeyCode::Char('e') => Effect::OpenEditor(EditorTarget {
                 path: self.current().path.clone(),
+                line: self.cursor_line_on_disk(),
             }),
             KeyCode::Char('r') if self.focus == Focus::Diff => {
                 self.open_suggestion_editor();
@@ -158,6 +162,25 @@ impl App {
             KeyCode::Char('q') => Effect::Quit,
             _ => Effect::None,
         }
+    }
+
+    /// New-side line under the cursor. A removed line or a hunk header has no
+    /// new side of its own, so the nearest one above it stands in; failing
+    /// that, the hunk header itself carries where the new side begins.
+    fn cursor_line_on_disk(&self) -> Option<u32> {
+        let lines = self.diff_pane.active_lines(&self.session.files);
+        if lines.is_empty() {
+            return None;
+        }
+        let above = &lines[..=self.diff_pane.cursor.min(lines.len() - 1)];
+        above.iter().rev().find_map(|line| line.new).or_else(|| {
+            above
+                .iter()
+                .rev()
+                .find(|line| line.kind == LineKind::Hunk)
+                .and_then(|line| hunk_ranges(&line.text))
+                .map(|(_, _, new_start, _)| new_start)
+        })
     }
 
     fn mouse(&mut self, mouse: MouseEvent) {
