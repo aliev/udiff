@@ -109,7 +109,7 @@ impl DiffSource for StdinDiffSource {
 
 fn read_diff(reader: &mut impl Read, is_terminal: bool) -> Result<String> {
     if is_terminal {
-        anyhow::bail!("expected a unified diff on stdin (for example: git diff | loopdiff)");
+        anyhow::bail!("expected a unified diff on stdin (for example: git diff | udiff)");
     }
     let mut raw = String::new();
     reader

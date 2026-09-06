@@ -1,23 +1,23 @@
 # Contributing
 
-Thanks for helping improve Loopdiff.
+Thanks for helping improve μdiff.
 
 ## Development
 
-Loopdiff requires Rust 1.85 or newer and Git. Clone the repository, then run:
+μdiff requires Rust 1.88 or newer. Clone the repository, then run:
 
 ```bash
-cargo build
-cargo run -- HEAD..main
+cargo build --workspace
+git diff | cargo run --release
 ```
 
 Before opening a pull request, run the same checks as CI:
 
 ```bash
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-cargo build --release
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo build --workspace --release
 ```
 
 Keep changes focused and add a regression test for user-visible behavior. Update

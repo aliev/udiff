@@ -43,7 +43,7 @@ fn main() {
     let code = match run() {
         Ok(code) => code,
         Err(error) => {
-            eprintln!("loopdiff: {error:#}");
+            eprintln!("udiff: {error:#}");
             1
         }
     };
@@ -85,7 +85,7 @@ fn view_watch(root: PathBuf) -> Result<i32> {
 fn view_diff(raw: &str) -> Result<i32> {
     let files = model::parse_unified_diff(raw);
     if files.is_empty() {
-        eprintln!("loopdiff: nothing to view");
+        eprintln!("udiff: nothing to view");
         return Ok(0);
     }
 

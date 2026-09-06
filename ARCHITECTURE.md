@@ -1,6 +1,6 @@
-# Loopdiff architecture
+# μdiff architecture
 
-Loopdiff is intentionally a small application, not a framework. Its design has
+μdiff is intentionally a small application, not a framework. Its design has
 three boundaries:
 
 ```text

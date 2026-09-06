@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Loopdiff are documented in this file. The project uses
+All notable changes to μdiff are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
@@ -12,7 +12,8 @@ All notable changes to Loopdiff are documented in this file. The project uses
 
 ### Changed
 
-- Loopdiff is now a universal unified-diff viewer that reads standard input.
+- Renamed the application to μdiff and its executable to `udiff`.
+- μdiff is now a universal unified-diff viewer that reads standard input.
 - Comments are temporary and can be copied together as compact plain text.
 - Removed Git input modes, persistent Markdown sessions, validation, replies,
   roles, authors, and external-response synchronization.

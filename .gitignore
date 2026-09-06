@@ -1,1 +1,6 @@
 /target
+*.md.tmp
+.DS_Store
+*.swp
+*.swo
+review.md

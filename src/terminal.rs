@@ -147,7 +147,7 @@ fn draw_waiting(frame: &mut Frame) {
     frame.render_widget(
         Paragraph::new(vec![
             ratatui::text::Line::from(ratatui::text::Span::styled(
-                "loopdiff",
+                "μdiff",
                 Style::default()
                     .fg(TEXT)
                     .add_modifier(ratatui::style::Modifier::BOLD),
@@ -305,6 +305,7 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
+        assert!(rendered.contains("μdiff"));
         assert!(rendered.contains("waiting for changes"));
         assert!(rendered.contains("q quit"));
     }

@@ -7,7 +7,7 @@ events. It does not use Git and does not require cooperation from the process
 editing the files.
 
 Each batch is rendered as a standard multi-file unified diff, with explicit
-file boundaries understood by interactive viewers such as Loopdiff.
+file boundaries understood by interactive viewers such as μdiff.
 
 ## Run
 
