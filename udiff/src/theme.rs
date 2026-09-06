@@ -155,7 +155,10 @@ impl Palette {
     fn light() -> Self {
         Self {
             bg: Color::Rgb(255, 255, 255),
-            surface: Color::Rgb(246, 248, 250),
+            // Deeper than Primer's canvas.subtle: the same luminance step
+            // reads far weaker at the top of the range than it does in the
+            // dark palette, and the panels stopped reading as panels.
+            surface: Color::Rgb(237, 241, 245),
             border: Color::Rgb(208, 215, 222),
             text: Color::Rgb(31, 35, 40),
             muted: Color::Rgb(101, 109, 118),

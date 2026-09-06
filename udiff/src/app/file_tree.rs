@@ -364,7 +364,9 @@ impl FileTree {
             let label = format!(" {reviewed}/{total} \u{b7} {comments}");
             let meter = meter_width(inner, UnicodeWidthStr::width(label.as_str()));
             spans.push(Span::styled(label, Style::default().fg(theme().muted)));
-            if meter > 0 {
+            // An untouched review has nothing to measure, and an all-empty
+            // track reads as a stray rule rather than as a meter.
+            if meter > 0 && reviewed > 0 {
                 spans.push(Span::raw("  "));
                 spans.extend(progress_spans(reviewed, total, meter));
             }
@@ -551,6 +553,14 @@ mod tests {
             focused: true,
             divided: true,
         }
+    }
+
+    #[test]
+    fn the_meter_stays_away_until_there_is_progress_to_show() {
+        // Nothing reviewed: the counters alone, no all-empty track.
+        assert_eq!(meter_width(30, 18), 10);
+        let spans = progress_spans(0, 4, 8);
+        assert_eq!(spans[0].content.chars().count(), 0);
     }
 
     #[test]
