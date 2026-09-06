@@ -1857,3 +1857,117 @@ fn the_edge_of_a_line_steps_across_to_the_other_pane() {
     assert_eq!(app.diff_pane.side, Side::Left);
     assert_eq!(app.diff_pane.cursor, 1);
 }
+
+fn screen(terminal: &Terminal<TestBackend>, width: u16, height: u16) -> Vec<String> {
+    (0..height)
+        .map(|y| {
+            (0..width)
+                .map(|x| terminal.backend().buffer().cell((x, y)).unwrap().symbol())
+                .collect::<String>()
+        })
+        .collect()
+}
+
+#[test]
+fn split_puts_a_removal_level_with_what_replaced_it() {
+    let diff =
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let rows = screen(&terminal, 120, 12);
+
+    let paired = rows
+        .iter()
+        .find(|row| row.contains("old") && row.contains("new"))
+        .expect("the removal and what replaced it share a row");
+    // The first divider on the row is the explorer's; the one that matters
+    // is whichever comes after the left side's text.
+    let left_end = paired.find("old").expect("the removal is on the row");
+    let divider = paired[left_end..]
+        .find('│')
+        .map(|offset| left_end + offset)
+        .expect("a divider follows it");
+    assert!(
+        divider < paired.find("new").unwrap(),
+        "with the divider between them: {paired:?}"
+    );
+}
+
+#[test]
+fn a_hunk_header_and_a_comment_still_cross_both_panes() {
+    let diff =
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,2 +1,2 @@\n ctx\n-old\n+new\n";
+    let comment = Comment {
+        id: "t-001".into(),
+        path: "a.rs".into(),
+        excerpt: "+new".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(2),
+        new_end: Some(2),
+        anchor_old: None,
+        anchor_new: Some(2),
+        body: CommentBody::Text("this one crosses the whole pane".into()),
+    };
+    let mut app = App::new(parse_unified_diff(diff), vec![comment]);
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let rows = screen(&terminal, 120, 12);
+
+    let header = rows
+        .iter()
+        .find(|row| row.contains("@@ -1,2 +1,2 @@"))
+        .expect("the hunk header is drawn");
+    // One divider is the explorer's. A paired row carries a second, between
+    // the panes; the header must not, because it belongs to neither side.
+    let paired = rows
+        .iter()
+        .find(|row| row.contains("old") && row.contains("new"))
+        .expect("the pair is drawn");
+    assert_eq!(paired.matches('│').count(), 2, "{paired:?}");
+    assert_eq!(
+        header.matches('│').count(),
+        1,
+        "it labels the code rather than being one side of it: {header:?}"
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("crosses the whole pane")),
+        "and the comment is drawn at all"
+    );
+}
+
+#[test]
+fn each_side_shows_only_its_own_line_number() {
+    // Old line 7 was replaced by new line 9: neither number belongs on both.
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -7 +9 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+    let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let rows = screen(&terminal, 120, 12);
+
+    let paired = rows
+        .iter()
+        .find(|row| row.contains("old") && row.contains("new"))
+        .expect("the pair is drawn");
+    // The first divider on the row is the explorer's; the one that matters is
+    // whichever comes after the left side's text.
+    let left_end = paired.find("old").expect("the removal is on the row");
+    let divider = paired[left_end..]
+        .find('│')
+        .map(|offset| left_end + offset)
+        .expect("a divider follows it");
+    assert!(
+        paired[..divider].contains('7'),
+        "the old number is on the left"
+    );
+    assert!(!paired[..divider].contains('9'), "and only the old one");
+    assert!(
+        paired[divider..].contains('9'),
+        "the new number is on the right"
+    );
+}

@@ -3,6 +3,7 @@ use super::{
     comment_editor::{CommentEditor, Mode as EditorMode},
     diff_pane::{DiffPane, VisualMode},
     render::{inline_comment_lines, styled_syntax_spans},
+    rows::{Row, Side},
     session::Session,
     view_helpers::{
         Metrics, anchor_position, apply_block_cursor, apply_character_selection, crop_code_line,
@@ -51,7 +52,7 @@ impl DiffPane {
             focus,
             sidebar_hidden: false,
         }
-        .diff_line(line, position, width)
+        .diff_line(line, position, width, None)
     }
 
     pub(super) fn editor_lines_for_test<'a>(
@@ -326,6 +327,34 @@ impl Renderer<'_> {
         }
     }
 
+    /// One side of a paired row, already cropped to its half. An empty cell is
+    /// drawn as background so the two sides stay level.
+    fn split_cell(&self, line: Option<usize>, side: Side, width: usize) -> Vec<Span<'static>> {
+        let Some(index) = line else {
+            return vec![Span::styled(
+                " ".repeat(width),
+                Style::default().bg(theme().bg),
+            )];
+        };
+        let file = self.current();
+        let built = self.diff_line(&file.lines[index], index, width, Some(side));
+        crop_code_line(built, 3, width, self.pane.h_scroll).spans
+    }
+
+    /// A paired row is one line across the whole pane, which is what lets a
+    /// hunk header and a comment card cross it.
+    fn split_row(&self, row: Row, width: usize) -> Line<'static> {
+        let left_width = width.saturating_sub(1) / 2;
+        let right_width = width.saturating_sub(1 + left_width);
+        let mut spans = self.split_cell(row.left, Side::Left, left_width);
+        spans.push(Span::styled(
+            "\u{2502}",
+            Style::default().fg(theme().border).bg(theme().bg),
+        ));
+        spans.extend(self.split_cell(row.right, Side::Right, right_width));
+        Line::from(spans)
+    }
+
     fn draw_diff(&mut self, f: &mut Frame, a: Rect) {
         let height = a.height as usize;
         self.ensure_visible(height);
@@ -379,7 +408,7 @@ impl Renderer<'_> {
                 .rposition(|line| line.kind == LineKind::Hunk)
         {
             for line in self.rows_for(
-                self.diff_line(&file.lines[sticky], sticky, a.width as usize),
+                self.diff_line(&file.lines[sticky], sticky, a.width as usize, None),
                 a.width as usize,
                 LineKind::Hunk,
             ) {
@@ -387,13 +416,60 @@ impl Renderer<'_> {
                 map.push(Some(sticky));
             }
         }
+        if self.pane.split {
+            // Row is Copy and there is one per line, so the copy buys a
+            // shorter borrow of the pane for the cost of a small vector.
+            let rows = self.pane.rows.clone();
+            for row in rows.iter().skip(self.pane.scroll) {
+                if lines.len() >= height {
+                    break;
+                }
+                let anchor = if row.full_width {
+                    row.left
+                } else {
+                    row.occupant(self.pane.side).or(row.left).or(row.right)
+                };
+                if row.full_width {
+                    let index = row.left.unwrap_or(0);
+                    let built = self.diff_line(&file.lines[index], index, a.width as usize, None);
+                    lines.push(crop_code_line(built, 3, a.width as usize, 0));
+                } else {
+                    lines.push(self.split_row(*row, a.width as usize));
+                }
+                map.push(anchor);
+                for (number, comment) in self
+                    .session
+                    .comments
+                    .iter()
+                    .filter(|comment| comment.path == file.path)
+                    .enumerate()
+                    // Either occupant of the row can carry the comment, not
+                    // just the one the cursor happens to be beside.
+                    .filter(|(_, comment)| {
+                        anchor_position(&file, comment).is_some_and(|line| row.holds(line))
+                    })
+                {
+                    for comment_line in inline_comment_lines(comment, number + 1, a.width as usize)
+                    {
+                        lines.push(comment_line);
+                        map.push(None);
+                    }
+                }
+            }
+            self.pane.row_map = map;
+            f.render_widget(
+                Paragraph::new(lines).style(Style::default().fg(theme().text).bg(theme().bg)),
+                a,
+            );
+            return;
+        }
         for p in self.pane.scroll..file.lines.len() {
             if lines.len() >= height {
                 break;
             }
             let l = &file.lines[p];
             for line in self.rows_for(
-                self.diff_line(l, p, a.width as usize),
+                self.diff_line(l, p, a.width as usize, None),
                 a.width as usize,
                 l.kind,
             ) {
@@ -526,7 +602,15 @@ impl Renderer<'_> {
         map.push(None);
     }
 
-    fn diff_line<'a>(&self, l: &'a DiffLine, p: usize, width: usize) -> Line<'a> {
+    /// `side` picks whose line number the gutter carries: `None` for the
+    /// unified view, which shows both.
+    fn diff_line<'a>(
+        &self,
+        l: &'a DiffLine,
+        p: usize,
+        width: usize,
+        side: Option<Side>,
+    ) -> Line<'a> {
         let base_bg = match l.kind {
             LineKind::Add => theme().green_bg,
             LineKind::Remove => theme().red_bg,
@@ -545,8 +629,12 @@ impl Renderer<'_> {
         } else {
             Span::raw(" ")
         };
-        let old = l.old.map_or("    ".into(), |v| format!("{v:>4}"));
-        let new = l.new.map_or("    ".into(), |v| format!("{v:>4}"));
+        let number = |value: Option<u32>| value.map_or("    ".to_owned(), |v| format!("{v:>4}"));
+        let numbers = match side {
+            None => format!("{} {} ", number(l.old), number(l.new)),
+            Some(Side::Left) => format!("{} ", number(l.old)),
+            Some(Side::Right) => format!("{} ", number(l.new)),
+        };
         let marker = match l.kind {
             LineKind::Add => Style::default().fg(theme().green),
             LineKind::Remove => Style::default().fg(theme().red),
@@ -554,7 +642,7 @@ impl Renderer<'_> {
         };
         let mut spans = vec![
             sign,
-            Span::styled(format!("{old} {new} "), Style::default().fg(theme().muted)),
+            Span::styled(numbers, Style::default().fg(theme().muted)),
             Span::styled(format!("{} ", l.marker()), marker),
         ];
         if l.kind == LineKind::Hunk {
