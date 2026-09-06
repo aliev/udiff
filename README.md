@@ -53,11 +53,13 @@ never meant to touch turn up.
 
 ```bash
 git diff main..HEAD | udiff
+gh pr diff 42 | udiff
 cat changes.patch | udiff
 ```
 
 Press `r` on a line to write a replacement instead of a comment. Suggestions come
-out in GitHub's own review syntax, so they paste into a pull request unchanged.
+out in GitHub's own review syntax, so a review you pull down with `gh` goes back
+up as a pull request comment unchanged.
 
 ### Comparing two files or directories
 
