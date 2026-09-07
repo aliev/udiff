@@ -5,7 +5,7 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
-## [0.2.0] - Unreleased
+## [0.2.0] - 2026-09-07
 
 ### Added
 
