@@ -4,7 +4,9 @@ use super::{
     App, Focus, NEXT_BATCH_KEY, PREVIOUS_BATCH_KEY, RevisionState,
     command::{Command, EditorTarget, Effect},
     diff_pane::KeyAction as DiffKeyAction,
+    file_tree::Target as SideTarget,
     help::EventState as HelpEventState,
+    picker::Action as PickerAction,
 };
 use crate::{
     comment::Comment,
@@ -21,8 +23,8 @@ impl App {
             session: state.session,
             diff_pane: state.diff_pane,
             focus: Focus::Diff,
-            sidebar_hidden: false,
-            search_return_focus: Focus::Diff,
+            sidebar_hidden: true,
+            picker: Default::default(),
             comment_editor: Default::default(),
             file_tree: state.file_tree,
             help: Default::default(),
@@ -68,11 +70,16 @@ impl App {
         if self.help.event(&Event::Key(key)) == HelpEventState::Consumed {
             return Effect::None;
         }
+        match self.picker.event(key, &self.session.files) {
+            PickerAction::Open(file) => {
+                self.select_side_target(SideTarget::File(file), false);
+                return Effect::None;
+            }
+            PickerAction::Consumed => return Effect::None,
+            PickerAction::Ignored => {}
+        }
         if self.focus == Focus::Editor {
             return self.editor_key(key);
-        }
-        if self.focus == Focus::Filter {
-            return self.filter_key(key);
         }
 
         if self.watching && matches!(self.focus, Focus::Files | Focus::Diff) {
@@ -152,8 +159,8 @@ impl App {
                 self.jump_comment(false);
                 Effect::None
             }
-            KeyCode::Char('/') => {
-                self.begin_search();
+            KeyCode::Char('p') => {
+                self.picker.open(&self.session.files);
                 Effect::None
             }
             KeyCode::Char('b') => {
@@ -207,7 +214,7 @@ impl App {
         // Keys are routed by focus, and the mouse follows the same rule: while
         // the editor or the filter owns input, a scroll must not walk the diff
         // cursor along — with a review range open it would keep extending it.
-        if self.help.is_open() || matches!(self.focus, Focus::Editor | Focus::Filter) {
+        if self.help.is_open() || self.picker.is_open() || self.focus == Focus::Editor {
             return;
         }
         match mouse.kind {

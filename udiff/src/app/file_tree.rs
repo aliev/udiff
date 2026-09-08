@@ -1,7 +1,7 @@
-use super::{render::file_status_spans, search::fuzzy, view_helpers::plural};
+use super::{render::file_status_spans, view_helpers::plural};
 use crate::theme::theme;
 use crate::{comment::Comment, model::FileDiff};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Position, Rect},
@@ -17,13 +17,6 @@ use unicode_width::UnicodeWidthStr;
 pub enum Target {
     File(usize),
     Comment { file: usize, comment: usize },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum SearchAction {
-    None,
-    Cancel,
-    Accept(Option<usize>),
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -104,9 +97,6 @@ impl Folder {
 }
 
 pub struct FileTree {
-    filter: String,
-    restore_filter: String,
-    no_match: bool,
     area: Rect,
     state: TreeState<NodeId>,
     known_nodes: HashSet<Vec<NodeId>>,
@@ -117,9 +107,6 @@ pub struct FileTree {
 impl Default for FileTree {
     fn default() -> Self {
         Self {
-            filter: String::new(),
-            restore_filter: String::new(),
-            no_match: false,
             area: Rect::default(),
             state: TreeState::default(),
             known_nodes: HashSet::new(),
@@ -145,18 +132,6 @@ pub struct View<'a> {
 }
 
 impl FileTree {
-    pub fn filter(&self) -> &str {
-        &self.filter
-    }
-
-    pub fn width(&self) -> u16 {
-        self.area.width
-    }
-
-    pub fn no_match(&self) -> bool {
-        self.no_match
-    }
-
     #[cfg(test)]
     pub fn selection(&self) -> Option<Target> {
         self.selection
@@ -188,65 +163,8 @@ impl FileTree {
     }
 
     #[cfg(test)]
-    pub fn set_filter(&mut self, filter: impl Into<String>) {
-        self.filter = filter.into();
-    }
-
-    #[cfg(test)]
     pub fn scroll_y(&self) -> usize {
         self.state.get_offset()
-    }
-
-    pub fn begin_search(&mut self) {
-        self.restore_filter.clone_from(&self.filter);
-        self.no_match = false;
-    }
-
-    pub fn search(&mut self, key: KeyEvent, view: &View<'_>) -> SearchAction {
-        match key.code {
-            KeyCode::Esc => {
-                self.filter.clone_from(&self.restore_filter);
-                self.no_match = false;
-                SearchAction::Cancel
-            }
-            KeyCode::Enter => {
-                if self.filter.is_empty() {
-                    return SearchAction::Accept(Some(view.current_file));
-                }
-                let file = self.first_file(view);
-                self.no_match = file.is_none();
-                if file.is_some() {
-                    self.restore_filter.clone_from(&self.filter);
-                }
-                SearchAction::Accept(file)
-            }
-            KeyCode::Backspace => {
-                self.filter.pop();
-                self.no_match = false;
-                SearchAction::None
-            }
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.filter.clear();
-                self.no_match = false;
-                SearchAction::None
-            }
-            KeyCode::Char(character)
-                if !key.modifiers.intersects(
-                    KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER,
-                ) =>
-            {
-                self.filter.push(character);
-                self.no_match = false;
-                SearchAction::None
-            }
-            _ => SearchAction::None,
-        }
-    }
-
-    pub fn first_file(&self, view: &View<'_>) -> Option<usize> {
-        view.files
-            .iter()
-            .position(|file| self.filter.is_empty() || fuzzy(&self.filter, &file.path))
     }
 
     pub fn navigate(&mut self, key: KeyEvent) -> Option<Target> {
@@ -316,9 +234,7 @@ impl FileTree {
     fn items(&self, view: &View<'_>) -> Vec<TreeItem<'static, NodeId>> {
         let mut root = Folder::default();
         for (file, diff) in view.files.iter().enumerate() {
-            if self.filter.is_empty() || fuzzy(&self.filter, &diff.path) {
-                root.insert(&diff.path, file);
-            }
+            root.insert(&diff.path, file);
         }
         root.items(view, 0)
     }
@@ -582,6 +498,7 @@ fn open_new_nodes(
 mod tests {
     use super::*;
     use crate::model::parse_unified_diff;
+    use crossterm::event::KeyModifiers;
     use ratatui::{Terminal, backend::TestBackend};
 
     fn view<'a>(files: &'a [FileDiff], reviewed: &'a HashSet<usize>) -> View<'a> {
@@ -633,21 +550,6 @@ mod tests {
             spans[1].content.chars().next(),
             "a meter drawn in one glyph reads as a plain rule when empty"
         );
-    }
-
-    #[test]
-    fn filtering_selects_the_first_matching_file() {
-        let files = parse_unified_diff(
-            "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-a\n+b\ndiff --git a/docs/b.md b/docs/b.md\n--- a/docs/b.md\n+++ b/docs/b.md\n@@ -1 +1 @@\n-a\n+b\n",
-        );
-        let reviewed = HashSet::new();
-        let mut tree = FileTree {
-            filter: "sr".into(),
-            ..FileTree::default()
-        };
-        assert_eq!(tree.first_file(&view(&files, &reviewed)), Some(0));
-        tree.filter = "docs".into();
-        assert_eq!(tree.first_file(&view(&files, &reviewed)), Some(1));
     }
 
     #[test]
@@ -730,30 +632,5 @@ mod tests {
             .collect::<String>();
         assert!(rendered.contains("deep/"));
         assert!(!rendered.contains("a.rs"));
-    }
-
-    #[test]
-    fn search_restores_the_previous_filter_on_escape() {
-        let files = parse_unified_diff(
-            "diff --git a/first b/first\n--- a/first\n+++ b/first\n@@ -1 +1 @@\n-a\n+b\n",
-        );
-        let reviewed = HashSet::new();
-        let mut tree = FileTree {
-            filter: "first".into(),
-            ..FileTree::default()
-        };
-        tree.begin_search();
-        tree.search(
-            KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE),
-            &view(&files, &reviewed),
-        );
-        assert_eq!(
-            tree.search(
-                KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
-                &view(&files, &reviewed),
-            ),
-            SearchAction::Cancel
-        );
-        assert_eq!(tree.filter, "first");
     }
 }

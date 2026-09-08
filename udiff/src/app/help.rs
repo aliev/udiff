@@ -121,11 +121,11 @@ impl Help {
 
 fn help_lines() -> Vec<Line<'static>> {
     vec![
-        help_line("PANELS", "- / Tab", "toggle explorer / diff"),
-        help_line("", "b", "hide / show the explorer"),
+        help_line("PANELS", "p", "find a file"),
+        help_line("", "- / Tab", "toggle explorer / diff"),
+        help_line("", "b", "show / hide the explorer"),
         help_line("", "w", "wrap long lines / cut them"),
         help_line("", "s", "side by side / unified"),
-        help_line("", "/", "search files"),
         help_line("", "?", "open / close this help"),
         Line::default(),
         help_line("NAVIGATION", "j k / ↑ ↓", "move"),

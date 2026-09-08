@@ -176,6 +176,7 @@ fn renders_complete_layout() {
 fn current_file_marker_stays_at_the_left_edge_for_nested_paths() {
     let diff = "diff --git a/docs/main.rs b/docs/main.rs\n--- a/docs/main.rs\n+++ b/docs/main.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.sidebar_hidden = false;
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
 
     terminal.draw(|frame| app.draw(frame)).unwrap();
@@ -193,6 +194,7 @@ fn long_code_lines_wrap_in_diff_view() {
         "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1 @@\n+{code}\n"
     );
     let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    app.sidebar_hidden = false;
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     let row_text = |terminal: &Terminal<TestBackend>, row| {
         (36..100)
@@ -320,6 +322,7 @@ fn scrolled_out_hunk_header_sticks_without_duplication() {
 fn tab_moves_focus_accent_between_panels() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.sidebar_hidden = false;
     let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
     // The explorer divider sits on its last column, wherever the layout put it.
     let divider = super::view::sidebar_width(100, false, false) - 1;
@@ -346,6 +349,7 @@ fn tab_moves_focus_accent_between_panels() {
 fn minus_toggles_between_explorer_and_diff() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.sidebar_hidden = false;
     app.key(KeyEvent::new(KeyCode::Char('-'), KeyModifiers::NONE));
     assert_eq!(app.focus, Focus::Files);
     assert_eq!(app.file_tree.selection(), Some(SideTarget::File(0)));
@@ -413,43 +417,74 @@ fn numbered_gg_jumps_to_exact_or_nearest_diff_line() {
 }
 
 #[test]
-fn escape_cancels_search_and_restores_previous_state() {
+fn the_explorer_starts_out_of_the_way() {
+    // A panel costs a column for as long as it is up, and in a split terminal
+    // that is most of the reading width. `p` reaches a file without one.
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
-    app.file_tree.set_filter("previous");
-    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
-    assert_eq!(app.focus, Focus::Filter);
-    assert_eq!(app.file_tree.filter(), "previous");
-    app.key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE));
-    assert_eq!(app.file_tree.filter(), "previousa");
-    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+    assert!(app.sidebar_hidden);
     assert_eq!(app.focus, Focus::Diff);
-    assert_eq!(app.file_tree.filter(), "previous");
+
+    app.key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE));
+    assert!(!app.sidebar_hidden, "and `b` still brings it back");
 }
 
 #[test]
-fn enter_accepts_search_in_file_explorer_and_empty_search_clears_it() {
+fn the_picker_opens_the_file_its_query_narrows_to() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let template = parse_unified_diff(diff).remove(0);
     let mut second = template.clone();
     second.path = "second.rs".into();
     let mut app = App::new(vec![template, second], Vec::new());
 
-    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+    assert!(app.picker.is_open());
     for character in "second".chars() {
         app.key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
     }
     app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.focus, Focus::Files);
-    assert_eq!(app.diff_pane.file, 1);
-    assert_eq!(app.file_tree.filter(), "second");
 
-    app.key(KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE));
-    assert_eq!(app.file_tree.filter(), "second");
-    app.key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
-    app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
-    assert_eq!(app.focus, Focus::Files);
-    assert!(app.file_tree.filter().is_empty());
+    assert_eq!(app.diff_pane.file, 1);
+    assert!(!app.picker.is_open());
+    assert_eq!(app.focus, Focus::Diff, "reading resumes, not the explorer");
+}
+
+#[test]
+fn escape_closes_the_picker_without_moving_off_the_file() {
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let template = parse_unified_diff(diff).remove(0);
+    let mut second = template.clone();
+    second.path = "second.rs".into();
+    let mut app = App::new(vec![template, second], Vec::new());
+
+    app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+    for character in "second".chars() {
+        app.key(KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE));
+    }
+    app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+
+    assert!(!app.picker.is_open());
+    assert_eq!(app.diff_pane.file, 0, "the query alone moves nothing");
+}
+
+#[test]
+fn the_picker_draws_over_the_diff() {
+    let diff = "diff --git a/alpha.rs b/alpha.rs\n--- a/alpha.rs\n+++ b/alpha.rs\n@@ -1 +1 @@\n-old\n+new\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+
+    app.key(KeyEvent::new(KeyCode::Char('p'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let screen: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(screen.contains("Files"), "the frame is titled");
+    assert!(screen.contains("alpha.rs"), "and lists the file");
 }
 
 #[test]
@@ -752,6 +787,7 @@ fn normal_mode_renders_and_moves_the_character_cursor() {
 fn tab_indented_go_lines_keep_their_indent_and_cursor_when_moving_down() {
     let diff = "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1,2 @@\n+\tif ready {\n+\t\treturn\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.sidebar_hidden = false;
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
     // First code column: the explorer, then the diff gutter.
     let code = super::view::sidebar_width(100, false, false) + 13;
@@ -955,6 +991,7 @@ fn sidebar_file_statuses_are_compact_and_color_coded() {
 fn space_marks_files_reviewed_and_advances_to_the_next_unreviewed_file() {
     let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@\n-old a\n+new a\ndiff --git a/b.rs b/b.rs\n--- a/b.rs\n+++ b/b.rs\n@@ -1 +1 @@\n-old b\n+new b\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.sidebar_hidden = false;
 
     app.key(KeyEvent::new(KeyCode::Char(' '), KeyModifiers::NONE));
     assert!(app.session.reviewed_files.contains(&0));
@@ -1349,6 +1386,7 @@ fn sidebar_arrows_continue_after_selecting_a_comment() {
         parse_unified_diff(diff),
         vec![comment(1, "one"), comment(2, "two")],
     );
+    app.sidebar_hidden = false;
     app.select_side_target(
         SideTarget::Comment {
             file: 0,
@@ -1383,6 +1421,7 @@ fn sidebar_scrolls_selected_file_into_view() {
         })
         .collect();
     let mut app = App::new(files, Vec::new());
+    app.sidebar_hidden = false;
     app.select_side_target(SideTarget::File(29), true);
     let mut terminal = Terminal::new(TestBackend::new(80, 14)).unwrap();
 
@@ -1430,6 +1469,7 @@ fn a_file_with_comments_still_lines_up_with_its_siblings() {
         body: CommentBody::Text("note".into()),
     };
     let mut app = App::new(parse_unified_diff(diff), vec![comment]);
+    app.sidebar_hidden = false;
     // Wide enough that both panes show; below 64 columns the explorer hides.
     let width = 100;
     let mut terminal = Terminal::new(TestBackend::new(width, 12)).unwrap();
@@ -1542,6 +1582,7 @@ fn a_comment_label_is_cut_to_the_explorer_not_to_a_fixed_length() {
 
     let comment_row = |width: u16| {
         let mut app = App::new(parse_unified_diff(diff), vec![comment.clone()]);
+        app.sidebar_hidden = false;
         let mut terminal = Terminal::new(TestBackend::new(width, 14)).unwrap();
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let sidebar = super::view::sidebar_width(width, false, false);
@@ -1635,6 +1676,7 @@ fn the_mouse_leaves_the_diff_alone_while_the_editor_is_open() {
 fn hiding_the_explorer_leaves_a_mark_where_it_was() {
     let diff = "diff --git a/src/a.rs b/src/a.rs\n--- a/src/a.rs\n+++ b/src/a.rs\n@@ -1 +1 @@\n-old\n+new\n";
     let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    app.sidebar_hidden = false;
     let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
     let screen = |terminal: &Terminal<TestBackend>| {
         (0..12u16)
@@ -1682,6 +1724,7 @@ fn turning_wrapping_off_cuts_the_line_and_says_so() {
         "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1 @@\n+{code}\n"
     );
     let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    app.sidebar_hidden = false;
     let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
     let rows = |terminal: &Terminal<TestBackend>| {
         (0..12u16)
@@ -1728,6 +1771,7 @@ fn walking_right_past_the_edge_scrolls_sideways() {
         "diff --git a/main.go b/main.go\n--- a/main.go\n+++ b/main.go\n@@ -0,0 +1 @@\n+{code}\n"
     );
     let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    app.sidebar_hidden = false;
     let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
     app.key(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
@@ -1900,6 +1944,7 @@ fn a_hunk_header_and_a_comment_still_cross_both_panes() {
         body: CommentBody::Text("this one crosses the whole pane".into()),
     };
     let mut app = App::new(parse_unified_diff(diff), vec![comment]);
+    app.sidebar_hidden = false;
     app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
     let mut terminal = Terminal::new(TestBackend::new(120, 12)).unwrap();
     terminal.draw(|frame| app.draw(frame)).unwrap();

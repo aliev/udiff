@@ -1,11 +1,6 @@
-//! File selection, sidebar focus, and search coordination.
+//! File selection and sidebar focus.
 
-use super::{
-    App, Focus,
-    command::Effect,
-    file_tree::{SearchAction, Target as SideTarget, View as FileTreeView},
-    view_helpers::anchor_position,
-};
+use super::{App, Focus, file_tree::Target as SideTarget, view_helpers::anchor_position};
 use crossterm::event::KeyEvent;
 
 impl App {
@@ -58,12 +53,6 @@ impl App {
         }
     }
 
-    pub(super) fn begin_search(&mut self) {
-        self.search_return_focus = self.focus;
-        self.file_tree.begin_search();
-        self.focus = Focus::Filter;
-    }
-
     pub(super) fn toggle_panel_focus(&mut self) {
         if self.focus == Focus::Files {
             self.file_tree.select(None);
@@ -80,26 +69,5 @@ impl App {
             selected_comment.unwrap_or(SideTarget::File(self.diff_pane.file)),
         ));
         self.focus = Focus::Files;
-    }
-
-    pub(super) fn filter_key(&mut self, key: KeyEvent) -> Effect {
-        let view = FileTreeView {
-            files: &self.session.files,
-            comments: &self.session.comments,
-            reviewed_files: &self.session.reviewed_files,
-            current_file: self.diff_pane.file,
-            active_comment: self.active_comment_index(),
-            focused: true,
-            divided: true,
-            width: self.file_tree.width(),
-        };
-        match self.file_tree.search(key, &view) {
-            SearchAction::Cancel => self.focus = self.search_return_focus,
-            SearchAction::Accept(Some(file)) => {
-                self.select_side_target(SideTarget::File(file), true)
-            }
-            SearchAction::Accept(None) | SearchAction::None => {}
-        }
-        Effect::None
     }
 }

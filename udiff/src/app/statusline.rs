@@ -2,7 +2,6 @@ use super::{
     Focus,
     comment_editor::{CommentEditor, Mode as EditorMode},
     diff_pane::DiffPane,
-    file_tree::FileTree,
     render::crop_spans,
     session::Session,
     view_helpers::anchor_position,
@@ -29,7 +28,6 @@ pub struct Statusline {
 pub struct View<'a> {
     pub session: &'a Session,
     pub pane: &'a DiffPane,
-    pub tree: &'a FileTree,
     pub editor: &'a CommentEditor,
     pub revision: Option<(usize, usize, u64, bool)>,
 }
@@ -48,32 +46,11 @@ impl Statusline {
         let View {
             session,
             pane,
-            tree,
             editor,
             revision,
         } = view;
         let width = area.width as usize;
-        let (mut left, right) = if focus == Focus::Filter {
-            let prompt = vec![
-                Span::styled(
-                    " /",
-                    Style::default()
-                        .fg(theme().blue)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(tree.filter().to_owned(), Style::default().fg(theme().text)),
-                Span::styled(" ", theme().caret()),
-            ];
-            let right = if tree.no_match() {
-                Span::styled(" no matches ", Style::default().fg(theme().red))
-            } else {
-                Span::styled(
-                    " Enter accept · Esc cancel · Ctrl+U clear ",
-                    Style::default().fg(theme().muted),
-                )
-            };
-            (prompt, right)
-        } else {
+        let (mut left, right) = {
             let current = pane.current(&session.files);
             let active_comment = session.comments.iter().find(|comment| {
                 comment.path == current.path

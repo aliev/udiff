@@ -5,6 +5,26 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
+### Added
+
+- `p` finds a file by name: a list over the diff that narrows as you type, with
+  each file's size and whether it has been reviewed. `Enter` opens it, `Esc`
+  leaves the diff where it was. It reopens on the search it was left on, since
+  coming back to the list usually means going somewhere near the last place;
+  `Ctrl+U` starts over.
+
+### Changed
+
+- The file explorer starts hidden. A panel costs a column for as long as it is
+  up, which in a split terminal is most of the reading width, and `p` reaches a
+  file without one. `b`, `-` and `Tab` still bring the explorer back.
+
+### Removed
+
+- `/`, which filtered the explorer from the status line. It showed the query
+  but never the matches, so accepting it was a guess; `p` shows what it will
+  open.
+
 ## [0.2.0] - 2026-09-07
 
 ### Added

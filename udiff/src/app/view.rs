@@ -1,6 +1,9 @@
 //! Top-level screen layout. Individual widgets render themselves.
 
-use super::{App, Focus, file_tree::View as FileTreeView, statusline::View as StatuslineView};
+use super::{
+    App, Focus, file_tree::View as FileTreeView, picker::View as PickerView,
+    statusline::View as StatuslineView,
+};
 use crate::theme::theme;
 use ratatui::{
     Frame,
@@ -43,7 +46,7 @@ impl App {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(8), Constraint::Length(1)])
             .split(root);
-        let focused = matches!(self.focus, Focus::Files | Focus::Filter);
+        let focused = self.focus == Focus::Files;
         let sidebar = sidebar_width(rows[0].width, focused, self.sidebar_hidden);
         let body = Layout::default()
             .direction(Direction::Horizontal)
@@ -79,7 +82,6 @@ impl App {
             &StatuslineView {
                 session: &self.session,
                 pane: &self.diff_pane,
-                tree: &self.file_tree,
                 editor: &self.comment_editor,
                 revision: self.watching.then_some((
                     self.active_revision + 1,
@@ -87,6 +89,15 @@ impl App {
                     self.revision_number,
                     self.revision_number == 0,
                 )),
+            },
+        );
+        self.picker.draw(
+            frame,
+            root,
+            &PickerView {
+                files: &self.session.files,
+                comments: &self.session.comments,
+                reviewed_files: &self.session.reviewed_files,
             },
         );
         self.help.draw(frame, root);

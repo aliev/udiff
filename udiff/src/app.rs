@@ -7,6 +7,7 @@ mod editor;
 mod file_tree;
 mod help;
 mod navigation;
+mod picker;
 mod render;
 mod review;
 mod revisions;
@@ -21,6 +22,7 @@ use comment_editor::CommentEditor;
 use diff_pane::DiffPane;
 use file_tree::FileTree;
 use help::Help;
+use picker::Picker;
 use revisions::RevisionState;
 use session::Session;
 use statusline::Statusline;
@@ -33,7 +35,6 @@ const NEXT_BATCH_KEY: char = '}';
 pub(super) enum Focus {
     Files,
     Diff,
-    Filter,
     Editor,
 }
 pub struct App {
@@ -45,9 +46,11 @@ pub struct App {
 
     // Shared UI state.
     focus: Focus,
-    /// Explorer hidden by hand. Session-only: μdiff keeps no settings.
+    /// Whether the explorer is away. It starts away: `p` reaches a file
+    /// without spending a column on a panel. Session-only, like every other
+    /// view preference — μdiff keeps no settings.
     sidebar_hidden: bool,
-    search_return_focus: Focus,
+    picker: Picker,
     help: Help,
     statusline: Statusline,
 
