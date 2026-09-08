@@ -11,7 +11,9 @@ All notable changes to μdiff are documented in this file. The project uses
   each file's size and whether it has been reviewed. `Enter` opens it, `Esc`
   leaves the diff where it was. It reopens on the search it was left on, since
   coming back to the list usually means going somewhere near the last place;
-  `Ctrl+U` starts over.
+  `Ctrl+U` starts over. The list is ordered the way the work goes — what is
+  left before what is done, and within each, what has been written about
+  before what has not — under headings that appear once the two groups exist.
 
 ### Changed
 

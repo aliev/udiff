@@ -29,6 +29,14 @@ pub struct Picker {
     selected: usize,
 }
 
+/// A drawn row. Headings are not selectable: `selected` counts files, so the
+/// cursor cannot land on one and no key needs to step over it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Entry {
+    Header(&'static str),
+    File(usize),
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
     Ignored,
@@ -47,11 +55,11 @@ impl Picker {
     /// coming back to the list is usually going somewhere near the last
     /// place — throwing the query away would charge for that work twice.
     /// `Ctrl+U` clears it when the next search is unrelated.
-    pub fn open(&mut self, files: &[FileDiff]) {
+    pub fn open(&mut self, view: &View<'_>) {
         self.open = true;
         // The diff may have been replaced since, so the kept position has to
         // be brought back inside the list it now indexes.
-        let last = self.matches(files).len().saturating_sub(1);
+        let last = self.matches(view).len().saturating_sub(1);
         self.selected = self.selected.min(last);
     }
 
@@ -59,17 +67,57 @@ impl Picker {
         self.open
     }
 
-    /// The files the query admits, in the order the diff lists them.
-    pub fn matches(&self, files: &[FileDiff]) -> Vec<usize> {
-        files
+    /// The files the query admits, in the order they should be worked
+    /// through: what is left before what is done, and within each, what has
+    /// been written about before what has not. The diff's own order breaks
+    /// ties, so a file never moves for a reason the list does not show.
+    pub fn matches(&self, view: &View<'_>) -> Vec<usize> {
+        let mut matched: Vec<usize> = view
+            .files
             .iter()
             .enumerate()
             .filter(|(_, file)| self.query.is_empty() || fuzzy(&self.query, &file.path))
             .map(|(index, _)| index)
-            .collect()
+            .collect();
+        matched.sort_by_key(|file| {
+            (
+                view.reviewed_files.contains(file),
+                self.comments(*file, view) == 0,
+                *file,
+            )
+        });
+        matched
     }
 
-    pub fn event(&mut self, key: KeyEvent, files: &[FileDiff]) -> Action {
+    fn comments(&self, file: usize, view: &View<'_>) -> usize {
+        let path = &view.files[file].path;
+        view.comments
+            .iter()
+            .filter(|comment| &comment.path == path)
+            .count()
+    }
+
+    /// The list as it is drawn: the files, with a heading wherever the group
+    /// changes. Headings appear only once the list actually splits — a lone
+    /// "to review" over every file at the start of a review says nothing.
+    fn entries(&self, view: &View<'_>) -> Vec<Entry> {
+        let matched = self.matches(view);
+        let reviewed = |file: &usize| view.reviewed_files.contains(file);
+        let splits = matched.iter().any(reviewed) && !matched.iter().all(reviewed);
+        let mut entries = Vec::new();
+        let mut group = None;
+        for file in matched {
+            let done = view.reviewed_files.contains(&file);
+            if splits && group != Some(done) {
+                entries.push(Entry::Header(if done { "reviewed" } else { "to review" }));
+                group = Some(done);
+            }
+            entries.push(Entry::File(file));
+        }
+        entries
+    }
+
+    pub fn event(&mut self, key: KeyEvent, view: &View<'_>) -> Action {
         if !self.open {
             return Action::Ignored;
         }
@@ -77,16 +125,16 @@ impl Picker {
         match key.code {
             KeyCode::Esc => self.open = false,
             KeyCode::Enter => {
-                let target = self.matches(files).get(self.selected).copied();
+                let target = self.matches(view).get(self.selected).copied();
                 self.open = false;
                 if let Some(file) = target {
                     return Action::Open(file);
                 }
             }
-            KeyCode::Up | KeyCode::BackTab => self.step(-1, files),
-            KeyCode::Down | KeyCode::Tab => self.step(1, files),
-            KeyCode::Char('p') if control => self.step(-1, files),
-            KeyCode::Char('n') if control => self.step(1, files),
+            KeyCode::Up | KeyCode::BackTab => self.step(-1, view),
+            KeyCode::Down | KeyCode::Tab => self.step(1, view),
+            KeyCode::Char('p') if control => self.step(-1, view),
+            KeyCode::Char('n') if control => self.step(1, view),
             KeyCode::Backspace => {
                 self.query.pop();
                 self.selected = 0;
@@ -111,8 +159,8 @@ impl Picker {
         Action::Consumed
     }
 
-    fn step(&mut self, delta: isize, files: &[FileDiff]) {
-        let last = self.matches(files).len().saturating_sub(1) as isize;
+    fn step(&mut self, delta: isize, view: &View<'_>) {
+        let last = self.matches(view).len().saturating_sub(1) as isize;
         self.selected = (self.selected as isize + delta).clamp(0, last.max(0)) as usize;
     }
 
@@ -120,9 +168,9 @@ impl Picker {
         if !self.open {
             return;
         }
-        let matches = self.matches(view.files);
+        let entries = self.entries(view);
         let width = root.width.saturating_sub(4).min(MAX_WIDTH);
-        let rows = u16::try_from(matches.len().max(1)).unwrap_or(u16::MAX);
+        let rows = u16::try_from(entries.len().max(1)).unwrap_or(u16::MAX);
         let height = root
             .height
             .saturating_sub(2)
@@ -179,7 +227,7 @@ impl Picker {
         if list.height == 0 {
             return;
         }
-        if matches.is_empty() {
+        if entries.is_empty() {
             frame.render_widget(
                 Paragraph::new(Line::from(Span::styled(
                     "  no match",
@@ -190,11 +238,29 @@ impl Picker {
             );
             return;
         }
-        let items: Vec<ListItem> = matches
+        // `selected` counts files; the widget counts drawn rows, and headings
+        // sit between them.
+        let highlight = entries
             .iter()
-            .map(|file| ListItem::new(row(*file, view, inner.saturating_sub(2))))
+            .enumerate()
+            .filter(|(_, entry)| matches!(entry, Entry::File(_)))
+            .nth(self.selected)
+            .map(|(row, _)| row);
+        let items: Vec<ListItem> = entries
+            .iter()
+            .map(|entry| match entry {
+                // The widget already reserves the cursor's two columns, so
+                // the heading lines up with the paths rather than past them.
+                Entry::Header(title) => ListItem::new(Line::from(Span::styled(
+                    (*title).to_owned(),
+                    Style::default()
+                        .fg(theme().muted)
+                        .add_modifier(Modifier::BOLD),
+                ))),
+                Entry::File(file) => ListItem::new(row(*file, view, inner.saturating_sub(2))),
+            })
             .collect();
-        let mut state = ListState::default().with_selected(Some(self.selected));
+        let mut state = ListState::default().with_selected(highlight);
         frame.render_stateful_widget(
             List::new(items)
                 .style(Style::default().bg(theme().surface))
@@ -281,13 +347,50 @@ mod tests {
         parse_unified_diff(&text)
     }
 
-    fn press(picker: &mut Picker, files: &[FileDiff], code: KeyCode) -> Action {
-        picker.event(KeyEvent::new(code, KeyModifiers::NONE), files)
+    fn view<'a>(
+        files: &'a [FileDiff],
+        comments: &'a [Comment],
+        reviewed: &'a HashSet<usize>,
+    ) -> View<'a> {
+        View {
+            files,
+            comments,
+            reviewed_files: reviewed,
+        }
     }
 
-    fn type_in(picker: &mut Picker, files: &[FileDiff], query: &str) {
+    fn plain(files: &[FileDiff]) -> View<'_> {
+        View {
+            files,
+            comments: &[],
+            reviewed_files: NOTHING_REVIEWED.get_or_init(HashSet::new),
+        }
+    }
+
+    static NOTHING_REVIEWED: std::sync::OnceLock<HashSet<usize>> = std::sync::OnceLock::new();
+
+    fn press(picker: &mut Picker, view: &View<'_>, code: KeyCode) -> Action {
+        picker.event(KeyEvent::new(code, KeyModifiers::NONE), view)
+    }
+
+    fn type_in(picker: &mut Picker, view: &View<'_>, query: &str) {
         for character in query.chars() {
-            press(picker, files, KeyCode::Char(character));
+            press(picker, view, KeyCode::Char(character));
+        }
+    }
+
+    fn comment_on(path: &str) -> Comment {
+        Comment {
+            id: path.to_owned(),
+            path: path.to_owned(),
+            excerpt: String::new(),
+            old_start: None,
+            old_end: None,
+            new_start: Some(1),
+            new_end: Some(1),
+            anchor_old: None,
+            anchor_new: Some(1),
+            body: crate::comment::CommentBody::Text("look".into()),
         }
     }
 
@@ -295,7 +398,7 @@ mod tests {
     fn a_closed_picker_leaves_every_key_alone() {
         let mut picker = Picker::default();
         assert_eq!(
-            press(&mut picker, &files(), KeyCode::Char('j')),
+            press(&mut picker, &plain(&files()), KeyCode::Char('j')),
             Action::Ignored
         );
     }
@@ -303,39 +406,42 @@ mod tests {
     #[test]
     fn the_query_narrows_the_list_without_needing_the_letters_adjacent() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        assert_eq!(picker.matches(&files).len(), 3, "everything, to begin with");
+        picker.open(&view);
+        assert_eq!(picker.matches(&view).len(), 3, "everything, to begin with");
 
-        type_in(&mut picker, &files, "dpane");
-        assert_eq!(picker.matches(&files), vec![0]);
+        type_in(&mut picker, &view, "dpane");
+        assert_eq!(picker.matches(&view), vec![0]);
     }
 
     #[test]
     fn typing_returns_the_cursor_to_the_best_match() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        press(&mut picker, &files, KeyCode::Down);
-        press(&mut picker, &files, KeyCode::Down);
+        picker.open(&view);
+        press(&mut picker, &view, KeyCode::Down);
+        press(&mut picker, &view, KeyCode::Down);
         assert_eq!(picker.selected, 2);
 
         // The list under the cursor is gone; staying at 2 would point at a
         // file the query never matched.
-        type_in(&mut picker, &files, "rs");
+        type_in(&mut picker, &view, "rs");
         assert_eq!(picker.selected, 0);
-        assert!(picker.selected < picker.matches(&files).len());
+        assert!(picker.selected < picker.matches(&view).len());
     }
 
     #[test]
     fn the_cursor_stops_at_both_ends() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        press(&mut picker, &files, KeyCode::Up);
+        picker.open(&view);
+        press(&mut picker, &view, KeyCode::Up);
         assert_eq!(picker.selected, 0, "no wrapping off the top");
         for _ in 0..9 {
-            press(&mut picker, &files, KeyCode::Down);
+            press(&mut picker, &view, KeyCode::Down);
         }
         assert_eq!(picker.selected, 2, "nor off the bottom");
     }
@@ -343,66 +449,129 @@ mod tests {
     #[test]
     fn enter_opens_the_file_under_the_cursor_and_closes() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        type_in(&mut picker, &files, "rows");
-        assert_eq!(press(&mut picker, &files, KeyCode::Enter), Action::Open(1));
+        picker.open(&view);
+        type_in(&mut picker, &view, "rows");
+        assert_eq!(press(&mut picker, &view, KeyCode::Enter), Action::Open(1));
         assert!(!picker.is_open());
     }
 
     #[test]
     fn enter_on_nothing_opens_nothing() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        type_in(&mut picker, &files, "zzz");
-        assert!(picker.matches(&files).is_empty());
-        assert_eq!(press(&mut picker, &files, KeyCode::Enter), Action::Consumed);
+        picker.open(&view);
+        type_in(&mut picker, &view, "zzz");
+        assert!(picker.matches(&view).is_empty());
+        assert_eq!(press(&mut picker, &view, KeyCode::Enter), Action::Consumed);
         assert!(!picker.is_open());
     }
 
     #[test]
     fn escape_closes_without_opening_anything() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        assert_eq!(press(&mut picker, &files, KeyCode::Esc), Action::Consumed);
+        picker.open(&view);
+        assert_eq!(press(&mut picker, &view, KeyCode::Esc), Action::Consumed);
         assert!(!picker.is_open());
     }
 
     #[test]
     fn opening_again_resumes_the_last_search() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        type_in(&mut picker, &files, "rs");
-        press(&mut picker, &files, KeyCode::Down);
-        press(&mut picker, &files, KeyCode::Esc);
+        picker.open(&view);
+        type_in(&mut picker, &view, "rs");
+        press(&mut picker, &view, KeyCode::Down);
+        press(&mut picker, &view, KeyCode::Esc);
 
-        picker.open(&files);
-        assert_eq!(picker.matches(&files).len(), 2, "the query survived");
+        picker.open(&view);
+        assert_eq!(picker.matches(&view).len(), 2, "the query survived");
         assert_eq!(picker.selected, 1, "and so did the place in the list");
 
         picker.event(
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
-            &files,
+            &view,
         );
-        assert_eq!(picker.matches(&files).len(), 3, "Ctrl+U starts over");
+        assert_eq!(picker.matches(&view).len(), 3, "Ctrl+U starts over");
     }
 
     #[test]
     fn a_kept_position_is_brought_back_inside_a_shorter_list() {
         let files = files();
+        let view = plain(&files);
         let mut picker = Picker::default();
-        picker.open(&files);
-        press(&mut picker, &files, KeyCode::Down);
-        press(&mut picker, &files, KeyCode::Down);
+        picker.open(&view);
+        press(&mut picker, &view, KeyCode::Down);
+        press(&mut picker, &view, KeyCode::Down);
         assert_eq!(picker.selected, 2);
-        press(&mut picker, &files, KeyCode::Esc);
+        press(&mut picker, &view, KeyCode::Esc);
 
         // A watch revision can leave fewer files than the position expects.
-        picker.open(&files[..1]);
+        picker.open(&plain(&files[..1]));
         assert_eq!(picker.selected, 0);
+    }
+
+    #[test]
+    fn what_is_left_comes_before_what_is_done() {
+        let files = files();
+        let comments = vec![comment_on("src/app/rows.rs"), comment_on("README.md")];
+        let reviewed = HashSet::from([2]);
+        let picker = Picker::default();
+
+        // README.md is index 2 and reviewed, so it sinks despite its comment;
+        // rows.rs is written about, so it rises above the untouched pane.
+        assert_eq!(
+            picker.matches(&view(&files, &comments, &reviewed)),
+            vec![1, 0, 2]
+        );
+    }
+
+    #[test]
+    fn headings_appear_only_once_the_list_splits() {
+        let files = files();
+        let comments = Vec::new();
+        let picker = Picker::default();
+
+        let nothing_done = HashSet::new();
+        assert!(
+            picker
+                .entries(&view(&files, &comments, &nothing_done))
+                .iter()
+                .all(|entry| matches!(entry, Entry::File(_))),
+            "a heading over every file at the start of a review says nothing"
+        );
+
+        let some_done = HashSet::from([2]);
+        assert_eq!(
+            picker.entries(&view(&files, &comments, &some_done)),
+            vec![
+                Entry::Header("to review"),
+                Entry::File(0),
+                Entry::File(1),
+                Entry::Header("reviewed"),
+                Entry::File(2),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_cursor_counts_files_and_never_headings() {
+        let files = files();
+        let comments = Vec::new();
+        let reviewed = HashSet::from([0]);
+        let view = view(&files, &comments, &reviewed);
+        let mut picker = Picker::default();
+        picker.open(&view);
+
+        // Two rows down is the third file, not the file after one heading.
+        press(&mut picker, &view, KeyCode::Down);
+        press(&mut picker, &view, KeyCode::Down);
+        assert_eq!(press(&mut picker, &view, KeyCode::Enter), Action::Open(0));
     }
 
     #[test]

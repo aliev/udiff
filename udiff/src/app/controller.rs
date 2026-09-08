@@ -6,7 +6,7 @@ use super::{
     diff_pane::KeyAction as DiffKeyAction,
     file_tree::Target as SideTarget,
     help::EventState as HelpEventState,
-    picker::Action as PickerAction,
+    picker::{Action as PickerAction, View as PickerView},
 };
 use crate::{
     comment::Comment,
@@ -70,7 +70,12 @@ impl App {
         if self.help.event(&Event::Key(key)) == HelpEventState::Consumed {
             return Effect::None;
         }
-        match self.picker.event(key, &self.session.files) {
+        let view = PickerView {
+            files: &self.session.files,
+            comments: &self.session.comments,
+            reviewed_files: &self.session.reviewed_files,
+        };
+        match self.picker.event(key, &view) {
             PickerAction::Open(file) => {
                 self.select_side_target(SideTarget::File(file), false);
                 return Effect::None;
@@ -160,7 +165,11 @@ impl App {
                 Effect::None
             }
             KeyCode::Char('p') => {
-                self.picker.open(&self.session.files);
+                self.picker.open(&PickerView {
+                    files: &self.session.files,
+                    comments: &self.session.comments,
+                    reviewed_files: &self.session.reviewed_files,
+                });
                 Effect::None
             }
             KeyCode::Char('b') => {
