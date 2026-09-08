@@ -134,6 +134,7 @@ fn help_lines() -> Vec<Line<'static>> {
         help_line("", "{line}gg", "jump to line"),
         help_line("", "h l / ← →", "close / open tree node"),
         help_line("", "^ / $", "first non-blank / end of line"),
+        help_line("", "n / N", "next / previous change"),
         help_line("", "{ / }", "previous / next revision"),
         help_line("", "click / wheel", "move cursor / scroll"),
         Line::default(),

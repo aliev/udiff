@@ -1,5 +1,5 @@
 use super::{
-    Focus,
+    Focus, change_map,
     comment_editor::{CommentEditor, Mode as EditorMode},
     diff_pane::{DiffPane, VisualMode},
     render::{inline_comment_lines, styled_syntax_spans},
@@ -35,6 +35,8 @@ const WRAP_MARKER_COLUMN: usize = 11;
 const SPLIT_PREFIX_WIDTH: usize = 8;
 const EDITOR_PREFIX_WIDTH: usize = 13;
 const EDITOR_TEXT_INSET: usize = 2;
+/// The change map and the scrollbar, one column each.
+const GUTTER_WIDTH: u16 = 2;
 const SCROLL_MARGIN_ROWS: usize = 3;
 /// Columns kept ahead of the cursor when the view scrolls back leftwards, so
 /// walking left reveals text rather than pinning the cursor to the edge.
@@ -266,20 +268,36 @@ impl Renderer<'_> {
                 .style(Style::default().bg(theme().surface)),
             header_columns[1],
         );
-        // A one-column gutter for the scrollbar, only while the file overflows.
+        // Two gutter columns while the file overflows: where the changes are,
+        // and where the view is. Neither answers the other's question, and
+        // reaching a change needs both.
         let overflows = self.current().lines.len() > parts[1].height as usize;
+        let gutter = if overflows { GUTTER_WIDTH } else { 0 }.min(parts[1].width);
         let body = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Min(0),
-                Constraint::Length(u16::from(overflows).min(parts[1].width)),
-            ])
+            .constraints([Constraint::Min(0), Constraint::Length(gutter)])
             .split(parts[1]);
         self.pane.area = body[0];
         self.draw_diff(f, body[0]);
         if overflows {
-            self.draw_scrollbar(f, body[1]);
+            let columns = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Length(1), Constraint::Length(1)])
+                .split(body[1]);
+            self.draw_change_map(f, columns[0]);
+            self.draw_scrollbar(f, columns[1]);
         }
+    }
+
+    /// Where the changes are. The scrollbar beside it holds the rule down the
+    /// edge, so this draws marks and nothing else — an unchanged stretch is
+    /// blank, and the marks stand alone in it rather than inside a line.
+    fn draw_change_map(&self, f: &mut Frame, a: Rect) {
+        let column: Vec<Line> = change_map::bands(self.active_lines(), a.height as usize)
+            .into_iter()
+            .map(|band| Line::from(map_cell(band)))
+            .collect();
+        f.render_widget(Paragraph::new(column), a);
     }
 
     fn draw_scrollbar(&self, f: &mut Frame, a: Rect) {
@@ -888,6 +906,39 @@ fn editor_aware_scroll(
         scroll = candidate;
     }
     scroll
+}
+
+/// One cell of the change map.
+///
+/// A cell stands for many lines, so most bands that hold a change hold both
+/// kinds — colouring those a third colour spends the two the diff already
+/// speaks and shows neither. A half-block splits the cell instead: the
+/// foreground paints the left half for removals, the background the right
+/// half for additions, and a mixed band shows red and green at once.
+///
+/// Monochrome has no colours to split, so there the shape carries both
+/// channels on its own.
+fn map_cell(band: change_map::Band) -> Span<'static> {
+    if theme().monochrome {
+        return Span::styled(band.glyph(), Style::default());
+    }
+    if !band.removed && !band.added {
+        return Span::styled(" ", Style::default().bg(theme().bg));
+    }
+    Span::styled(
+        "\u{258c}",
+        Style::default()
+            .fg(if band.removed {
+                theme().red
+            } else {
+                theme().bg
+            })
+            .bg(if band.added {
+                theme().green
+            } else {
+                theme().bg
+            }),
+    )
 }
 
 fn rendered_rows_through(

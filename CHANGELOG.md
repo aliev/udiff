@@ -15,6 +15,16 @@ All notable changes to μdiff are documented in this file. The project uses
   left before what is done, and within each, what has been written about
   before what has not — under headings that appear once the two groups exist.
 
+- A change map beside the scrollbar: one column marking where the additions
+  and removals are, so a long file shows at a glance how much is left and
+  where it clusters. A cell stands for several lines and so usually holds both
+  kinds; a half-block splits it, painting removals red on the left and
+  additions green on the right, rather than spending a third colour to say
+  "both". `n` and `N` jump between change blocks, counting a removal and the
+  addition that replaced it as one stop. The map says where the changes are
+  and the scrollbar says where the view is; reaching a change quickly needs
+  both, so neither replaces the other.
+
 ### Changed
 
 - The file explorer starts hidden. A panel costs a column for as long as it is

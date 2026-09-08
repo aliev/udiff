@@ -1,5 +1,5 @@
 use super::{
-    Focus,
+    Focus, change_map,
     comment_editor::CommentEditor,
     diff_view,
     rows::{Row, Side, pair},
@@ -392,6 +392,27 @@ impl DiffPane {
                     self.side = self.side_of(self.cursor);
                     if std::mem::take(&mut self.wrap) {
                         return KeyAction::Notice("wrapped rows cannot line up · wrapping off");
+                    }
+                }
+            }
+            // A file with many changes is mostly context to scroll past, so
+            // the changes get a motion of their own.
+            KeyCode::Char('n' | 'N') if focused => {
+                let forward = key.code == KeyCode::Char('n');
+                match change_map::jump(self.active_lines(files), self.cursor, forward) {
+                    Some(line) => {
+                        self.cursor = line;
+                        self.visual_col = 0;
+                        if self.split {
+                            self.side = self.side_of(line);
+                        }
+                    }
+                    None => {
+                        return KeyAction::Notice(if forward {
+                            "no change after this one"
+                        } else {
+                            "no change before this one"
+                        });
                     }
                 }
             }

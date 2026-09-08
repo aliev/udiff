@@ -4,7 +4,7 @@ use super::rows::Side;
 use super::view_helpers::*;
 use super::*;
 use crate::comment::{Comment, CommentBody};
-use crate::model::{FileStatus, parse_unified_diff};
+use crate::model::{FileStatus, LineKind, parse_unified_diff};
 use crate::theme::theme;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::{
@@ -2242,4 +2242,114 @@ fn going_back_to_the_start_of_a_line_shows_its_start() {
     app.key(KeyEvent::new(KeyCode::Char('^'), KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
     assert_eq!(app.diff_pane.h_scroll, 0, "and the start is back on screen");
+}
+
+#[test]
+fn changes_get_a_motion_of_their_own() {
+    // A removal and the addition replacing it are one edit, so `n` must not
+    // stop twice inside the same replacement.
+    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,6 +1,6 @@\n one\n-two\n+TWO\n three\n four\n+five\n six\n";
+    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    let kind = |app: &App| app.session.files[0].lines[app.diff_pane.cursor].kind;
+    app.diff_pane.cursor = 0;
+
+    app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    let first = app.diff_pane.cursor;
+    assert_eq!(kind(&app), LineKind::Remove);
+
+    app.key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::NONE));
+    let second = app.diff_pane.cursor;
+    assert_eq!(kind(&app), LineKind::Add);
+    assert!(
+        second > first + 2,
+        "the addition next to the removal is the same block"
+    );
+
+    app.key(KeyEvent::new(KeyCode::Char('N'), KeyModifiers::NONE));
+    assert_eq!(app.diff_pane.cursor, first, "and back again");
+}
+
+#[test]
+fn the_map_marks_the_changes_and_the_scrollbar_keeps_its_own_column() {
+    let mut body = String::new();
+    for line in 0..40 {
+        body.push_str(&format!(" context {line}\n"));
+    }
+    body.push_str("-old\n+new\n");
+    for line in 0..40 {
+        body.push_str(&format!(" context {line}\n"));
+    }
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,81 +1,81 @@\n{body}");
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let column = |x: u16| -> Vec<String> {
+        (0..24)
+            .filter_map(|row| buffer.cell((x, row)))
+            .map(|cell| cell.symbol().to_owned())
+            .collect()
+    };
+    let map = column(98);
+    let bar = column(99);
+
+    assert!(
+        bar.iter().any(|symbol| symbol == "\u{2502}")
+            && bar.iter().any(|symbol| symbol == "\u{2588}"),
+        "the scrollbar still has its track and its thumb"
+    );
+    let marked = (0..24)
+        .filter_map(|row| buffer.cell((98, row)))
+        .find(|cell| cell.symbol() == "\u{258c}")
+        .expect("the map marks the replacement beside it");
+    assert_eq!(marked.fg, theme().red, "the removal on the left half");
+    assert_eq!(marked.bg, theme().green, "the addition on the right half");
+    assert!(
+        !map.iter().any(|symbol| symbol == "\u{2502}"),
+        "an unchanged band draws nothing, so the marks are not buried in a rule"
+    );
+}
+
+#[test]
+fn the_map_shows_both_colours_in_a_band_that_holds_both() {
+    // A band stands for several lines, so most bands with a change hold both
+    // kinds. Giving those a third colour spends the two the diff already
+    // speaks and shows neither, which is how red went missing.
+    let mut body = String::new();
+    for line in 0..10 {
+        body.push_str(&format!(" head_{line}\n"));
+    }
+    for line in 0..4 {
+        body.push_str(&format!("-gone_{line}\n"));
+    }
+    for line in 0..10 {
+        body.push_str(&format!(" middle_{line}\n"));
+    }
+    for line in 0..4 {
+        body.push_str(&format!("+fresh_{line}\n"));
+    }
+    for line in 0..10 {
+        body.push_str(&format!(" tail_{line}\n"));
+    }
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,38 +1,38 @@\n{body}");
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let buffer = terminal.backend().buffer();
+    let map: Vec<_> = (0..24).filter_map(|row| buffer.cell((98, row))).collect();
+
+    assert!(
+        map.iter()
+            .any(|cell| cell.fg == theme().red && cell.bg == theme().bg),
+        "a band of removals alone paints its left half red"
+    );
+    assert!(
+        map.iter()
+            .any(|cell| cell.fg == theme().bg && cell.bg == theme().green),
+        "a band of additions alone paints its right half green"
+    );
 }

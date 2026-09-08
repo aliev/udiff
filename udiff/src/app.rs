@@ -1,3 +1,4 @@
+mod change_map;
 mod command;
 mod comment_editor;
 mod controller;
