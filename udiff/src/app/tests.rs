@@ -251,7 +251,7 @@ fn last_wrapped_line_remains_visible_at_the_end_of_diff() {
 }
 
 #[test]
-fn final_diff_line_keeps_a_bottom_scroll_margin() {
+fn the_cursor_keeps_a_bottom_scroll_margin_while_there_is_file_below() {
     let added = (1..=30)
         .map(|number| format!("+line_{number:02}();\n"))
         .collect::<String>();
@@ -260,7 +260,9 @@ fn final_diff_line_keeps_a_bottom_scroll_margin() {
     let mut app = App::new(parse_unified_diff(&diff), Vec::new());
     let mut terminal = Terminal::new(TestBackend::new(100, 16)).unwrap();
 
-    app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+    // Mid-file, where the rows below the cursor are lines still to be read.
+    // At the very end there are none, and the view stops there instead.
+    app.diff_pane.cursor = 20;
     terminal.draw(|frame| app.draw(frame)).unwrap();
 
     let screen = terminal
@@ -272,16 +274,23 @@ fn final_diff_line_keeps_a_bottom_scroll_margin() {
         .collect::<Vec<_>>();
     let cursor_row = screen
         .iter()
-        .position(|row| row.contains("line_30();"))
-        .expect("last diff line should be visible");
+        .position(|row| row.contains("line_20();"))
+        .expect("the line under the cursor should be visible");
     let viewport_bottom = usize::from(app.diff_pane.area.bottom());
     assert!(viewport_bottom.saturating_sub(cursor_row + 1) >= 3);
 }
 
 #[test]
 fn scrolled_out_hunk_header_sticks_without_duplication() {
-    let diff = "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@ first\n one\n@@ -20 +20 @@ second\n two\n";
-    let mut app = App::new(parse_unified_diff(diff), Vec::new());
+    // Long enough to overflow the terminal: a file that fits cannot be
+    // scrolled, so a sticky header would never arise on one.
+    let tail = (0..25)
+        .map(|line| format!(" tail_{line}\n"))
+        .collect::<String>();
+    let diff = format!(
+        "diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1 +1 @@ first\n one\n@@ -20 +20 @@ second\n two\n{tail}"
+    );
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
     app.diff_pane.cursor = 3;
     app.diff_pane.scroll = 3;
     let mut terminal = Terminal::new(TestBackend::new(100, 20)).unwrap();
@@ -2313,6 +2322,96 @@ fn the_map_marks_the_changes_and_the_scrollbar_keeps_its_own_column() {
 }
 
 #[test]
+fn the_last_screenful_stops_at_the_last_line() {
+    // The margin kept below the cursor is context to read into; past the end
+    // of the file there is none, and holding it there traded content at the
+    // top for blank rows at the bottom — and left the thumb short of its own
+    // end, which is the one thing a scrollbar is for.
+    let mut body = String::new();
+    for line in 0..60 {
+        body.push_str(&format!(" fn context_{line}() {{}}\n"));
+    }
+    body.push_str("-old\n+new\n");
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,62 +1,62 @@\n{body}");
+    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let mut terminal = Terminal::new(TestBackend::new(50, 14)).unwrap();
+
+    for mode in ["unified", "side by side"] {
+        if mode == "side by side" {
+            app.key(KeyEvent::new(KeyCode::Char('s'), KeyModifiers::NONE));
+        }
+        app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let buffer = terminal.backend().buffer();
+        let body_rows = 1..13;
+
+        let has_content =
+            |row: u16| (0..47).any(|column| buffer.cell((column, row)).unwrap().symbol() != " ");
+        assert!(
+            body_rows.clone().all(has_content),
+            "{mode}: no blank rows left under the last line"
+        );
+        assert_eq!(
+            buffer.cell((49, 12)).unwrap().symbol(),
+            "\u{2588}",
+            "{mode}: the thumb reaches the bottom of the track"
+        );
+    }
+
+    app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+    app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(
+        terminal.backend().buffer().cell((49, 1)).unwrap().symbol(),
+        "\u{2588}",
+        "and the top of it at the top of the file"
+    );
+}
+
+#[test]
+fn a_card_on_the_last_line_still_has_room_under_it() {
+    // Stopping the view at the last line has to mean the last thing drawn,
+    // not the last line of code: a comment hangs below its line, and clamping
+    // to the code alone left it with nowhere to go.
+    let added = (1..=20)
+        .map(|number| format!("+fn line_{number:02}() {{}}\n"))
+        .collect::<String>();
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1,20 @@\n{added}");
+    let comment = Comment {
+        id: "c-001".into(),
+        path: "a.rs".into(),
+        excerpt: "+fn line_20() {}".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(20),
+        new_end: Some(20),
+        anchor_old: None,
+        anchor_new: Some(20),
+        body: CommentBody::Text("this one needs a name".into()),
+    };
+    let mut app = App::new(parse_unified_diff(&diff), vec![comment]);
+    let mut terminal = Terminal::new(TestBackend::new(56, 14)).unwrap();
+
+    app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let screen: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(screen.contains("fn line_20()"), "the line is on screen");
+    assert!(
+        screen.contains("this one needs a name"),
+        "and so is what was said about it"
+    );
+}
+
+#[test]
 fn the_map_shows_both_colours_in_a_band_that_holds_both() {
     // A band stands for several lines, so most bands with a change hold both
     // kinds. Giving those a third colour spends the two the diff already
@@ -2352,4 +2451,52 @@ fn the_map_shows_both_colours_in_a_band_that_holds_both() {
             .any(|cell| cell.fg == theme().bg && cell.bg == theme().green),
         "a band of additions alone paints its right half green"
     );
+}
+
+#[test]
+fn a_card_taller_than_the_margin_is_shown_whole() {
+    // The margin below the cursor exists to keep something in view; when a
+    // card hangs there, the card is that something. Reserving both pushed the
+    // view twice as far, and reserving only the margin cut the card off.
+    let added = (1..=40)
+        .map(|number| format!("+fn line_{number:02}() {{}}\n"))
+        .collect::<String>();
+    let diff =
+        format!("diff --git a/a.rs b/a.rs\n--- /dev/null\n+++ b/a.rs\n@@ -0,0 +1,40 @@\n{added}");
+    let suggestion = Comment {
+        id: "s-001".into(),
+        path: "a.rs".into(),
+        excerpt: "+fn line_20() {}".into(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(20),
+        new_end: Some(20),
+        anchor_old: None,
+        anchor_new: Some(20),
+        body: CommentBody::Suggestion {
+            replacement: (0..5)
+                .map(|line| format!("fn replacement_{line}();"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        },
+    };
+    let mut app = App::new(parse_unified_diff(&diff), vec![suggestion]);
+    app.diff_pane.cursor = 20;
+    let mut terminal = Terminal::new(TestBackend::new(56, 14)).unwrap();
+
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+
+    let screen: String = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    for line in 0..5 {
+        assert!(
+            screen.contains(&format!("replacement_{line}")),
+            "line {line} of the suggestion is cut off"
+        );
+    }
 }

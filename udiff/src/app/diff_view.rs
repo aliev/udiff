@@ -301,8 +301,21 @@ impl Renderer<'_> {
     }
 
     fn draw_scrollbar(&self, f: &mut Frame, a: Rect) {
-        let lines = self.current().lines.len();
-        let mut state = ScrollbarState::new(lines)
+        // ratatui counts scroll positions, not lines: the thumb reaches the
+        // end of the track only at `content_length - 1`. Handing it the line
+        // count leaves it short of the bottom by a viewport. The rows just
+        // drawn say how much of the file one screenful holds, wrapping and
+        // inline comments included, which is what a position is worth here.
+        let total = self.active_lines().len();
+        let shown = self
+            .pane
+            .row_map
+            .iter()
+            .flatten()
+            .max()
+            .map_or(1, |last| (last + 1).saturating_sub(self.pane.scroll).max(1));
+        let positions = total.saturating_sub(shown).saturating_add(1);
+        let mut state = ScrollbarState::new(positions)
             .position(self.pane.scroll)
             .viewport_content_length(a.height as usize);
         f.render_stateful_widget(
@@ -494,6 +507,14 @@ impl Renderer<'_> {
                 self.session,
                 SCROLL_MARGIN_ROWS,
             );
+            self.pane.scroll = scroll_within_the_file(
+                self.pane.scroll,
+                self.pane.cursor,
+                height,
+                metrics,
+                &file,
+                self.session,
+            );
         }
         let viewport_starts_with_hunk = file
             .lines
@@ -538,6 +559,11 @@ impl Renderer<'_> {
             if focus_row >= self.pane.scroll + height.saturating_sub(1) {
                 self.pane.scroll = focus_row + 2 - height.max(2);
             }
+            // Paired rows are fewer than the lines they hold, so the same
+            // margin that overshoots the end unified overshoots here too.
+            // Whatever the sticky header already took is not room to fill.
+            let room = height.saturating_sub(lines.len());
+            self.pane.scroll = self.pane.scroll.min(rows.len().saturating_sub(room));
             for row in rows.iter().skip(self.pane.scroll) {
                 if lines.len() >= height {
                     break;
@@ -868,13 +894,65 @@ fn review_aware_scroll(
     bottom_margin: usize,
 ) -> usize {
     let (width, wrap) = (metrics.width, metrics.wrap);
-    let bottom_margin = bottom_margin.min(height.saturating_sub(1));
+    // A card hangs under the line it belongs to, so it is what the margin was
+    // reserving room for — reserving both would push the view twice as far
+    // for one keystroke. Whichever needs more room wins.
+    let bottom_margin = bottom_margin
+        .max(inline_rows_at(cursor, width, file, session))
+        .min(height.saturating_sub(1));
     while scroll < cursor {
         let occupied = rendered_rows_through(scroll, cursor, width, file, session, true, wrap);
         if occupied.saturating_add(bottom_margin) <= height {
             break;
         }
         scroll += 1;
+    }
+    scroll
+}
+
+/// Pulls the view back to where the last line sits on the last row.
+///
+/// The margin kept below the cursor is context to read into, and past the end
+/// of the file there is none: holding it there trades content at the top for
+/// blank rows at the bottom, and leaves the scrollbar short of its own end.
+fn scroll_within_the_file(
+    mut scroll: usize,
+    cursor: usize,
+    height: usize,
+    metrics: Metrics,
+    file: &FileDiff,
+    session: &Session,
+) -> usize {
+    let Some(last) = file.lines.len().checked_sub(1) else {
+        return 0;
+    };
+    // `rendered_rows_through` stops at the line itself: reaching a line does
+    // not mean reaching what hangs under it. At the end of the file that card
+    // is the last thing there is, and leaving it out clamps the view as if
+    // the file ended a screenful earlier, which hides it.
+    let trailing = inline_rows_at(last, metrics.width, file, session);
+    let occupied = |from: usize| {
+        rendered_rows_through(from, last, metrics.width, file, session, true, metrics.wrap)
+            .saturating_add(trailing)
+    };
+    while scroll > 0 && occupied(scroll) < height {
+        // Inline comments and suggestions make the view taller than the line
+        // count says. Pulling back far enough to fill the bottom can push the
+        // cursor off it, and keeping the cursor in sight outranks filling the
+        // last rows.
+        if rendered_rows_through(
+            scroll - 1,
+            cursor,
+            metrics.width,
+            file,
+            session,
+            true,
+            metrics.wrap,
+        ) > height
+        {
+            break;
+        }
+        scroll -= 1;
     }
     scroll
 }
@@ -906,6 +984,23 @@ fn editor_aware_scroll(
         scroll = candidate;
     }
     scroll
+}
+
+/// Rows the inline card anchored on `line` takes, if there is one.
+fn inline_rows_at(line: usize, width: usize, file: &FileDiff, session: &Session) -> usize {
+    session
+        .comments
+        .iter()
+        .filter(|comment| comment.path == file.path)
+        .enumerate()
+        .filter_map(|(number, comment)| {
+            anchor_position(file, comment).and_then(|anchor| {
+                (anchor == line).then(|| {
+                    inline_comment_lines(comment, number + 1, width, DIFF_PREFIX_WIDTH).len()
+                })
+            })
+        })
+        .sum()
 }
 
 /// One cell of the change map.

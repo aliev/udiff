@@ -31,6 +31,17 @@ All notable changes to μdiff are documented in this file. The project uses
   up, which in a split terminal is most of the reading width, and `p` reaches a
   file without one. `b`, `-` and `Tab` still bring the explorer back.
 
+### Fixed
+
+- Scrolling to the end of a file no longer runs past the last line, which left
+  blank rows under it and stopped the scrollbar's thumb short of the bottom of
+  its own track. The margin kept below the cursor is context to read into, and
+  past the last line there is none.
+- A comment or suggestion on the last line of a file is no longer left without
+  room to be drawn, and one taller than the margin below the cursor is no
+  longer cut off. A card hangs under the line it belongs to, so it is what the
+  margin was reserving room for; the two are no longer reserved separately.
+
 ### Removed
 
 - `/`, which filtered the explorer from the status line. It showed the query
