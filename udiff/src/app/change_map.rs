@@ -6,33 +6,56 @@
 
 use crate::model::{DiffLine, LineKind};
 
-/// What one cell of the map stands for. A cell covers many lines, so it
-/// reports which kinds are present rather than a single kind.
+/// What one cell of the map stands for.
+///
+/// A cell is a squashed slice of the file, so a band holding both kinds is
+/// telling the truth rather than being indecisive about it — and it splits the
+/// way the file runs, top and bottom, not left and right. Splitting it
+/// sideways turned a run of mixed bands into two parallel bars.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct Band {
-    pub removed: bool,
-    pub added: bool,
+    pub removals: usize,
+    pub additions: usize,
+    /// A comment or suggestion sits somewhere in this band. It gets a column
+    /// of its own, and only when the file has any.
+    pub noted: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Marks {
+    Removed,
+    Added,
+    Both,
 }
 
 impl Band {
-    /// The glyph for a map drawn without colour, where the shape has to carry
-    /// both channels on its own. The monochrome palette is `Color::Reset`
-    /// throughout, so there a colour says nothing at all.
-    ///
-    /// An unchanged band draws nothing. The scrollbar beside it already holds
-    /// a rule down the edge; a second one would bury the marks in it.
+    pub(super) fn marks(self) -> Option<Marks> {
+        match (self.removals > 0, self.additions > 0) {
+            (false, false) => None,
+            (true, false) => Some(Marks::Removed),
+            (false, true) => Some(Marks::Added),
+            (true, true) => Some(Marks::Both),
+        }
+    }
+
+    /// The glyph for a map drawn without colour, where the shape is the only
+    /// channel there is: the monochrome palette is `Color::Reset` throughout.
+    /// It splits the same way, so the two maps read alike.
     pub(super) fn glyph(self) -> &'static str {
-        match (self.removed, self.added) {
-            (true, true) => "\u{2588}",
-            (true, false) => "\u{258c}",
-            (false, true) => "\u{2590}",
-            (false, false) => " ",
+        match self.marks() {
+            None => "\u{2502}",
+            Some(Marks::Removed) => "\u{2580}",
+            Some(Marks::Added) => "\u{2584}",
+            Some(Marks::Both) => "\u{2588}",
         }
     }
 }
 
 /// One band per screen row, each covering an equal share of the file.
-pub(super) fn bands(lines: &[DiffLine], height: usize) -> Vec<Band> {
+///
+/// `noted` holds the line positions comments are anchored to, so both columns
+/// of the gutter are banded the same way and cannot drift apart.
+pub(super) fn bands(lines: &[DiffLine], noted: &[usize], height: usize) -> Vec<Band> {
     if height == 0 {
         return Vec::new();
     }
@@ -40,12 +63,15 @@ pub(super) fn bands(lines: &[DiffLine], height: usize) -> Vec<Band> {
         .map(|row| {
             let start = row * lines.len() / height;
             let end = (row + 1) * lines.len() / height;
-            lines[start..end]
+            let mut band = lines[start..end]
                 .iter()
                 .fold(Band::default(), |band, line| Band {
-                    removed: band.removed || line.kind == LineKind::Remove,
-                    added: band.added || line.kind == LineKind::Add,
-                })
+                    removals: band.removals + usize::from(line.kind == LineKind::Remove),
+                    additions: band.additions + usize::from(line.kind == LineKind::Add),
+                    noted: false,
+                });
+            band.noted = noted.iter().any(|line| (start..end).contains(line));
+            band
         })
         .collect()
 }
@@ -95,6 +121,10 @@ mod tests {
     use crate::model::parse_unified_diff;
 
     /// `c` context, `-` removal, `+` addition — one character per line.
+    fn plain(lines: &[DiffLine], height: usize) -> Vec<Band> {
+        bands(lines, &[], height)
+    }
+
     fn diff(shape: &str) -> Vec<DiffLine> {
         let body: String = shape
             .chars()
@@ -115,26 +145,46 @@ mod tests {
     #[test]
     fn a_band_reports_every_kind_the_lines_it_covers_hold() {
         // Six lines into three bands: two lines each.
-        let map = bands(&diff("cc-+cc"), 3);
+        let map = plain(&diff("cc-+cc"), 3);
         assert_eq!(map[0], Band::default(), "context only");
         assert_eq!(
             map[1],
             Band {
-                removed: true,
-                added: true
+                removals: 1,
+                additions: 1,
+                noted: false
             },
-            "a replacement, both halves"
+            "a replacement, counted rather than flagged"
         );
         assert_eq!(map[2], Band::default());
     }
 
     #[test]
     fn without_colour_the_shape_alone_tells_the_kinds_apart() {
-        let glyphs: Vec<_> = bands(&diff("c-+-"), 4)
+        let glyphs: Vec<_> = plain(&diff("c-+-"), 4)
             .into_iter()
             .map(Band::glyph)
             .collect();
-        assert_eq!(glyphs, [" ", "\u{258c}", "\u{2590}", "\u{258c}"]);
+        assert_eq!(glyphs, ["\u{2502}", "\u{2580}", "\u{2584}", "\u{2580}"]);
+    }
+
+    #[test]
+    fn a_band_holding_both_kinds_says_so_rather_than_picking_one() {
+        assert_eq!(plain(&diff("-+"), 1)[0].marks(), Some(Marks::Both));
+        assert_eq!(plain(&diff("--"), 1)[0].marks(), Some(Marks::Removed));
+        assert_eq!(plain(&diff("++"), 1)[0].marks(), Some(Marks::Added));
+        assert_eq!(plain(&diff("cc"), 1)[0].marks(), None);
+    }
+
+    #[test]
+    fn a_note_lands_in_the_band_holding_the_line_it_is_anchored_to() {
+        let lines = diff("cccccc");
+        let map = bands(&lines, &[4], 3);
+        assert_eq!(
+            map.iter().map(|band| band.noted).collect::<Vec<_>>(),
+            [false, false, true],
+            "two lines per band, so line 4 opens the third"
+        );
     }
 
     #[test]

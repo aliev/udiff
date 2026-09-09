@@ -2279,7 +2279,7 @@ fn changes_get_a_motion_of_their_own() {
 }
 
 #[test]
-fn the_map_marks_the_changes_and_the_scrollbar_keeps_its_own_column() {
+fn the_map_is_one_unbroken_column_beside_the_scrollbar() {
     let mut body = String::new();
     for line in 0..40 {
         body.push_str(&format!(" context {line}\n"));
@@ -2290,34 +2290,66 @@ fn the_map_marks_the_changes_and_the_scrollbar_keeps_its_own_column() {
     }
     let diff =
         format!("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,81 +1,81 @@\n{body}");
-    let mut app = App::new(parse_unified_diff(&diff), Vec::new());
+    let note = Comment {
+        id: "c-001".into(),
+        path: "a.rs".into(),
+        excerpt: String::new(),
+        old_start: None,
+        old_end: None,
+        new_start: Some(41),
+        new_end: Some(41),
+        anchor_old: None,
+        anchor_new: Some(41),
+        body: CommentBody::Text("look here".into()),
+    };
+    let mut app = App::new(parse_unified_diff(&diff), vec![note]);
     let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
     terminal.draw(|frame| app.draw(frame)).unwrap();
 
     let buffer = terminal.backend().buffer();
-    let column = |x: u16| -> Vec<String> {
-        (0..24)
+    // Row 0 is the file bar and the last is the status line; the gutter is
+    // everything between.
+    let gutter = 1..23;
+    let cells = |x| -> Vec<_> {
+        gutter
+            .clone()
             .filter_map(|row| buffer.cell((x, row)))
-            .map(|cell| cell.symbol().to_owned())
             .collect()
     };
-    let map = column(98);
-    let bar = column(99);
+    let (notes, map, bar) = (cells(97), cells(98), cells(99));
 
     assert!(
-        bar.iter().any(|symbol| symbol == "\u{2502}")
-            && bar.iter().any(|symbol| symbol == "\u{2588}"),
-        "the scrollbar still has its track and its thumb"
+        bar.iter()
+            .any(|cell| cell.symbol() == "\u{2588}" && cell.fg == theme().muted)
+            && bar
+                .iter()
+                .any(|cell| cell.symbol() == "\u{2502}" && cell.fg == theme().border),
+        "the scrollbar keeps its own column, track and thumb"
     );
-    let marked = (0..24)
-        .filter_map(|row| buffer.cell((98, row)))
-        .find(|cell| cell.symbol() == "\u{258c}")
-        .expect("the map marks the replacement beside it");
-    assert_eq!(marked.fg, theme().red, "the removal on the left half");
-    assert_eq!(marked.bg, theme().green, "the addition on the right half");
     assert!(
-        !map.iter().any(|symbol| symbol == "\u{2502}"),
-        "an unchanged band draws nothing, so the marks are not buried in a rule"
+        map.iter()
+            .any(|cell| cell.fg == theme().red || cell.fg == theme().green),
+        "the map carries the change"
+    );
+    assert!(
+        map.iter()
+            .all(|cell| cell.symbol() == "\u{2588}" || cell.symbol() == "\u{2584}"),
+        "and every cell of it fills its width, so the bar is one unbroken column"
+    );
+    assert!(
+        map.iter().any(|cell| cell.fg == theme().border),
+        "an unchanged band is the bar, dimmed, not a gap in it"
+    );
+
+    let note = notes
+        .iter()
+        .find(|cell| cell.symbol() == "\u{25c6}")
+        .expect("the note is marked beside the bar");
+    assert_eq!(note.fg, theme().comment);
+    assert_eq!(
+        notes.iter().filter(|c| c.symbol() == "\u{25c6}").count(),
+        1,
+        "one note, one mark"
     );
 }
 
@@ -2352,9 +2384,13 @@ fn the_last_screenful_stops_at_the_last_line() {
             body_rows.clone().all(has_content),
             "{mode}: no blank rows left under the last line"
         );
-        assert_eq!(
-            buffer.cell((49, 12)).unwrap().symbol(),
-            "\u{2588}",
+        let thumbed = |cell: &ratatui::buffer::Cell| {
+            (cell.symbol() == "\u{2588}" && cell.fg == theme().muted)
+                || cell.bg == theme().border
+                || cell.modifier.contains(Modifier::UNDERLINED)
+        };
+        assert!(
+            thumbed(buffer.cell((49, 12)).unwrap()),
             "{mode}: the thumb reaches the bottom of the track"
         );
     }
@@ -2362,9 +2398,11 @@ fn the_last_screenful_stops_at_the_last_line() {
     app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
     app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert_eq!(
-        terminal.backend().buffer().cell((49, 1)).unwrap().symbol(),
-        "\u{2588}",
+    let top = terminal.backend().buffer().cell((49, 1)).unwrap();
+    assert!(
+        (top.symbol() == "\u{2588}" && top.fg == theme().muted)
+            || top.bg == theme().border
+            || top.modifier.contains(Modifier::UNDERLINED),
         "and the top of it at the top of the file"
     );
 }
@@ -2392,7 +2430,7 @@ fn a_card_on_the_last_line_still_has_room_under_it() {
         body: CommentBody::Text("this one needs a name".into()),
     };
     let mut app = App::new(parse_unified_diff(&diff), vec![comment]);
-    let mut terminal = Terminal::new(TestBackend::new(56, 14)).unwrap();
+    let mut terminal = Terminal::new(TestBackend::new(64, 14)).unwrap();
 
     app.key(KeyEvent::new(KeyCode::Char('G'), KeyModifiers::NONE));
     terminal.draw(|frame| app.draw(frame)).unwrap();
@@ -2412,44 +2450,54 @@ fn a_card_on_the_last_line_still_has_room_under_it() {
 }
 
 #[test]
-fn the_map_shows_both_colours_in_a_band_that_holds_both() {
-    // A band stands for several lines, so most bands with a change hold both
-    // kinds. Giving those a third colour spends the two the diff already
-    // speaks and shows neither, which is how red went missing.
+fn a_band_holding_both_kinds_splits_top_and_bottom() {
+    // A band stands for several lines, so many hold both kinds. A cell is a
+    // squashed slice of the file, so it splits the way the file runs — and
+    // splitting it sideways instead turned a run of mixed bands into two
+    // parallel bars.
     let mut body = String::new();
-    for line in 0..10 {
+    for line in 0..120 {
         body.push_str(&format!(" head_{line}\n"));
     }
-    for line in 0..4 {
+    for line in 0..20 {
         body.push_str(&format!("-gone_{line}\n"));
     }
-    for line in 0..10 {
+    for line in 0..120 {
         body.push_str(&format!(" middle_{line}\n"));
     }
-    for line in 0..4 {
+    for line in 0..20 {
         body.push_str(&format!("+fresh_{line}\n"));
     }
-    for line in 0..10 {
+    // A replacement, so one band holds both kinds at once.
+    body.push_str("-swapped\n+swap\n");
+    for line in 0..120 {
         body.push_str(&format!(" tail_{line}\n"));
     }
     let diff =
-        format!("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,38 +1,38 @@\n{body}");
+        format!("diff --git a/a.rs b/a.rs\n--- a/a.rs\n+++ b/a.rs\n@@ -1,400 +1,400 @@\n{body}");
     let mut app = App::new(parse_unified_diff(&diff), Vec::new());
     let mut terminal = Terminal::new(TestBackend::new(100, 24)).unwrap();
+    // Long enough that the thumb is a few rows rather than half the column.
+    // Its height is the viewport's share of the file, so it covers the map
+    // only on files barely long enough to need a scrollbar at all.
     terminal.draw(|frame| app.draw(frame)).unwrap();
 
     let buffer = terminal.backend().buffer();
     let map: Vec<_> = (0..24).filter_map(|row| buffer.cell((98, row))).collect();
 
     assert!(
-        map.iter()
-            .any(|cell| cell.fg == theme().red && cell.bg == theme().bg),
-        "a band of removals alone paints its left half red"
+        map.iter().any(|cell| cell.fg == theme().red),
+        "a band of removals is red"
     );
     assert!(
-        map.iter()
-            .any(|cell| cell.fg == theme().bg && cell.bg == theme().green),
-        "a band of additions alone paints its right half green"
+        map.iter().any(|cell| cell.fg == theme().green),
+        "a band of additions is green"
+    );
+    assert!(
+        map.iter().any(|cell| cell.symbol() == "\u{2584}"
+            && cell.fg == theme().green
+            && cell.bg == theme().red),
+        "and a band holding both splits, removals above and additions below"
     );
 }
 

@@ -35,12 +35,15 @@ const WRAP_MARKER_COLUMN: usize = 11;
 const SPLIT_PREFIX_WIDTH: usize = 8;
 const EDITOR_PREFIX_WIDTH: usize = 13;
 const EDITOR_TEXT_INSET: usize = 2;
-/// The change map and the scrollbar, one column each.
+/// The change map and the scrollbar, one column each. Review notes take a
+/// third when the file has any; a column that says nothing is not worth the
+/// width in a split terminal.
 const GUTTER_WIDTH: u16 = 2;
 const SCROLL_MARGIN_ROWS: usize = 3;
 /// Columns kept ahead of the cursor when the view scrolls back leftwards, so
 /// walking left reveals text rather than pinning the cursor to the edge.
 const SCROLL_MARGIN_COLUMNS: usize = 8;
+const THUMB: &str = "\u{2588}";
 
 #[cfg(test)]
 impl DiffPane {
@@ -272,7 +275,13 @@ impl Renderer<'_> {
         // and where the view is. Neither answers the other's question, and
         // reaching a change needs both.
         let overflows = self.current().lines.len() > parts[1].height as usize;
-        let gutter = if overflows { GUTTER_WIDTH } else { 0 }.min(parts[1].width);
+        let notes = self.notes_in_file();
+        let gutter = if overflows {
+            GUTTER_WIDTH + u16::from(notes)
+        } else {
+            0
+        }
+        .min(parts[1].width);
         let body = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Min(0), Constraint::Length(gutter)])
@@ -282,20 +291,64 @@ impl Renderer<'_> {
         if overflows {
             let columns = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Length(1), Constraint::Length(1)])
+                .constraints(vec![Constraint::Length(1); gutter as usize])
                 .split(body[1]);
-            self.draw_change_map(f, columns[0]);
-            self.draw_scrollbar(f, columns[1]);
+            let map = usize::from(notes);
+            let bands = self.bands(columns[map].height as usize);
+            if notes {
+                self.draw_notes(f, columns[0], &bands);
+            }
+            self.draw_change_map(f, columns[map], &bands);
+            self.draw_scrollbar(f, columns[map + 1]);
         }
     }
 
-    /// Where the changes are. The scrollbar beside it holds the rule down the
-    /// edge, so this draws marks and nothing else — an unchanged stretch is
-    /// blank, and the marks stand alone in it rather than inside a line.
-    fn draw_change_map(&self, f: &mut Frame, a: Rect) {
-        let column: Vec<Line> = change_map::bands(self.active_lines(), a.height as usize)
-            .into_iter()
-            .map(|band| Line::from(map_cell(band)))
+    /// Whether the file has anything to mark in the notes column.
+    fn notes_in_file(&self) -> bool {
+        let path = &self.current().path;
+        self.session
+            .comments
+            .iter()
+            .any(|comment| &comment.path == path)
+    }
+
+    /// The map's bands, banded once so the gutter columns line up.
+    fn bands(&self, height: usize) -> Vec<change_map::Band> {
+        let file = self.current();
+        let noted: Vec<usize> = self
+            .session
+            .comments
+            .iter()
+            .filter(|comment| comment.path == file.path)
+            .filter_map(|comment| anchor_position(file, comment))
+            .collect();
+        change_map::bands(&file.lines, &noted, height)
+    }
+
+    /// Where the changes are: one unbroken column beside the scrollbar.
+    ///
+    /// Every cell is the same shape, dim where nothing changed. A column that
+    /// swapped between a centred rule and a half block for its marks read as
+    /// a line jogging left and right rather than a bar with colour in it.
+    fn draw_change_map(&self, f: &mut Frame, a: Rect, bands: &[change_map::Band]) {
+        let column: Vec<Line> = bands
+            .iter()
+            .map(|band| Line::from(map_cell(*band)))
+            .collect();
+        f.render_widget(Paragraph::new(column), a);
+    }
+
+    /// Where the review notes are. They get a column of their own because a
+    /// cell's two colours are already spent on the diff's own two.
+    fn draw_notes(&self, f: &mut Frame, a: Rect, bands: &[change_map::Band]) {
+        let column: Vec<Line> = bands
+            .iter()
+            .map(|band| {
+                Line::from(Span::styled(
+                    if band.noted { "\u{25c6}" } else { " " },
+                    Style::default().fg(theme().comment).bg(theme().bg),
+                ))
+            })
             .collect();
         f.render_widget(Paragraph::new(column), a);
     }
@@ -323,7 +376,7 @@ impl Renderer<'_> {
                 .begin_symbol(None)
                 .end_symbol(None)
                 .track_symbol(Some("\u{2502}"))
-                .thumb_symbol("\u{2588}")
+                .thumb_symbol(THUMB)
                 .track_style(Style::default().fg(theme().border).bg(theme().bg))
                 .thumb_style(Style::default().fg(theme().muted).bg(theme().bg)),
             a,
@@ -1014,26 +1067,20 @@ fn inline_rows_at(line: usize, width: usize, file: &FileDiff, session: &Session)
 /// Monochrome has no colours to split, so there the shape carries both
 /// channels on its own.
 fn map_cell(band: change_map::Band) -> Span<'static> {
+    use change_map::Marks;
     if theme().monochrome {
         return Span::styled(band.glyph(), Style::default());
     }
-    if !band.removed && !band.added {
-        return Span::styled(" ", Style::default().bg(theme().bg));
-    }
-    Span::styled(
-        "\u{258c}",
-        Style::default()
-            .fg(if band.removed {
-                theme().red
-            } else {
-                theme().bg
-            })
-            .bg(if band.added {
-                theme().green
-            } else {
-                theme().bg
-            }),
-    )
+    // A cell is a squashed slice of the file, so when it holds both kinds it
+    // splits the way the file runs — removals above, additions below, the
+    // order a hunk puts them in. One column either way.
+    let (glyph, fg, bg) = match band.marks() {
+        None => ("\u{2588}", theme().border, theme().bg),
+        Some(Marks::Removed) => ("\u{2588}", theme().red, theme().bg),
+        Some(Marks::Added) => ("\u{2588}", theme().green, theme().bg),
+        Some(Marks::Both) => ("\u{2584}", theme().green, theme().red),
+    };
+    Span::styled(glyph, Style::default().fg(fg).bg(bg))
 }
 
 fn rendered_rows_through(

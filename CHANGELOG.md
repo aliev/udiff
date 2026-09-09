@@ -5,6 +5,22 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
+### Added
+
+- Comments and suggestions are marked in the gutter with a `◆` of their own,
+  in the column beside the change map. The column appears only for a file that
+  has notes: one that says nothing is not worth its width in a split terminal.
+
+### Changed
+
+- The change map is one unbroken column beside the scrollbar. Every cell fills
+  its width, dim where nothing changed and coloured where something did; a
+  band holding both kinds splits top and bottom, removals above and additions
+  below. A cell is a squashed slice of the file, so it divides the way the
+  file runs — dividing it left and right instead turned a run of mixed bands
+  into two parallel bars, and marking only the changed cells left a column
+  jogging between a centred rule and a half block.
+
 ## [0.3.0] - 2026-09-09
 
 ### Added
