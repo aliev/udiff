@@ -20,6 +20,11 @@ All notable changes to μdiff are documented in this file. The project uses
   file runs — dividing it left and right instead turned a run of mixed bands
   into two parallel bars, and marking only the changed cells left a column
   jogging between a centred rule and a half block.
+- The map paints in its own softer pair rather than the colours of a `-` or
+  `+` marker. A solid cell of the marker colour read far louder than the pale
+  rows those markers sit on, so the map looked like a different palette, worst
+  in the light theme. The new pair is the same hues pulled most of the way
+  towards the rows, and still clears three to one against the pane.
 
 ## [0.3.0] - 2026-09-09
 

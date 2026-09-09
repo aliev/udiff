@@ -2328,7 +2328,7 @@ fn the_map_is_one_unbroken_column_beside_the_scrollbar() {
     );
     assert!(
         map.iter()
-            .any(|cell| cell.fg == theme().red || cell.fg == theme().green),
+            .any(|cell| cell.fg == theme().map_removed || cell.fg == theme().map_added),
         "the map carries the change"
     );
     assert!(
@@ -2486,17 +2486,17 @@ fn a_band_holding_both_kinds_splits_top_and_bottom() {
     let map: Vec<_> = (0..24).filter_map(|row| buffer.cell((98, row))).collect();
 
     assert!(
-        map.iter().any(|cell| cell.fg == theme().red),
+        map.iter().any(|cell| cell.fg == theme().map_removed),
         "a band of removals is red"
     );
     assert!(
-        map.iter().any(|cell| cell.fg == theme().green),
+        map.iter().any(|cell| cell.fg == theme().map_added),
         "a band of additions is green"
     );
     assert!(
         map.iter().any(|cell| cell.symbol() == "\u{2584}"
-            && cell.fg == theme().green
-            && cell.bg == theme().red),
+            && cell.fg == theme().map_added
+            && cell.bg == theme().map_removed),
         "and a band holding both splits, removals above and additions below"
     );
 }

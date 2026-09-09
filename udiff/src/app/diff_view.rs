@@ -1076,9 +1076,9 @@ fn map_cell(band: change_map::Band) -> Span<'static> {
     // order a hunk puts them in. One column either way.
     let (glyph, fg, bg) = match band.marks() {
         None => ("\u{2588}", theme().border, theme().bg),
-        Some(Marks::Removed) => ("\u{2588}", theme().red, theme().bg),
-        Some(Marks::Added) => ("\u{2588}", theme().green, theme().bg),
-        Some(Marks::Both) => ("\u{2584}", theme().green, theme().red),
+        Some(Marks::Removed) => ("\u{2588}", theme().map_removed, theme().bg),
+        Some(Marks::Added) => ("\u{2588}", theme().map_added, theme().bg),
+        Some(Marks::Both) => ("\u{2584}", theme().map_added, theme().map_removed),
     };
     Span::styled(glyph, Style::default().fg(fg).bg(bg))
 }
