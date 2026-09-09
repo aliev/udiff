@@ -338,15 +338,24 @@ impl Renderer<'_> {
         f.render_widget(Paragraph::new(column), a);
     }
 
-    /// Where the review notes are. They get a column of their own because a
-    /// cell's two colours are already spent on the diff's own two.
+    /// Where the review notes are, in the same unbroken column the map uses.
+    ///
+    /// A band covers many lines, so four notes on four adjacent lines land in
+    /// one cell. Marking each with a glyph invited counting them, and the
+    /// count was always wrong; a bar says where they are and says nothing it
+    /// cannot keep.
     fn draw_notes(&self, f: &mut Frame, a: Rect, bands: &[change_map::Band]) {
         let column: Vec<Line> = bands
             .iter()
             .map(|band| {
+                let colour = if band.noted {
+                    theme().map_noted
+                } else {
+                    theme().border
+                };
                 Line::from(Span::styled(
-                    if band.noted { "\u{25c6}" } else { " " },
-                    Style::default().fg(theme().comment).bg(theme().bg),
+                    "\u{2588}",
+                    Style::default().fg(colour).bg(theme().bg),
                 ))
             })
             .collect();

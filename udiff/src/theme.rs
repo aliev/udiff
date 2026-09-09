@@ -52,15 +52,16 @@ pub(crate) struct Palette {
     pub(crate) green_bg: Color,
     pub(crate) red: Color,
     pub(crate) red_bg: Color,
-    /// The change map's own pair. A solid cell of `red` or `green` — the
-    /// colours of a `-` or `+` marker — reads far louder than the pale rows
-    /// those markers sit on, so the map looked like a different palette,
-    /// worst in the light theme. These are the same hues pulled seven tenths
-    /// of the way from the marker towards the row it belongs to: soft enough
-    /// to match the diff, and still 3.05:1 or better against the pane, which
-    /// is the floor for something that is not text.
+    /// The gutter's own trio. A solid cell of `red`, `green` or `comment` —
+    /// the colours of a `-`, a `+` or a note's rule — reads far louder than
+    /// the pale rows those markers sit on, so the gutter looked like a
+    /// different palette, worst in the light theme. These are the same hues
+    /// pulled three quarters of the way from the marker towards the row it
+    /// belongs to: soft enough to match the diff, and still 3.09:1 or better
+    /// against the pane, which is the floor for something that is not text.
     pub(crate) map_removed: Color,
     pub(crate) map_added: Color,
+    pub(crate) map_noted: Color,
     pub(crate) hunk_bg: Color,
     pub(crate) comment: Color,
     pub(crate) comment_bg: Color,
@@ -152,8 +153,9 @@ impl Palette {
             green_bg: Color::Rgb(24, 45, 35),
             red: Color::Rgb(247, 118, 142),
             red_bg: Color::Rgb(54, 31, 40),
-            map_removed: Color::Rgb(189, 92, 111),
-            map_added: Color::Rgb(118, 158, 85),
+            map_removed: Color::Rgb(197, 95, 115),
+            map_added: Color::Rgb(123, 164, 88),
+            map_noted: Color::Rgb(178, 140, 84),
             hunk_bg: Color::Rgb(28, 38, 58),
             comment: Color::Rgb(224, 175, 104),
             comment_bg: Color::Rgb(47, 39, 28),
@@ -178,8 +180,9 @@ impl Palette {
             green_bg: Color::Rgb(218, 251, 225),
             red: Color::Rgb(207, 34, 46),
             red_bg: Color::Rgb(255, 235, 233),
-            map_removed: Color::Rgb(221, 94, 102),
-            map_added: Color::Rgb(84, 164, 106),
+            map_removed: Color::Rgb(219, 86, 95),
+            map_added: Color::Rgb(76, 159, 99),
+            map_noted: Color::Rgb(180, 141, 51),
             hunk_bg: Color::Rgb(221, 244, 255),
             comment: Color::Rgb(154, 103, 0),
             comment_bg: Color::Rgb(255, 248, 197),
@@ -203,6 +206,7 @@ impl Palette {
             red_bg: Color::Reset,
             map_removed: Color::Reset,
             map_added: Color::Reset,
+            map_noted: Color::Reset,
             hunk_bg: Color::Reset,
             comment: Color::Reset,
             comment_bg: Color::Reset,
@@ -277,11 +281,11 @@ mod tests {
 
     #[test]
     fn the_map_stays_visible_while_it_matches_the_diff() {
-        // The map's pair is pulled towards the pale rows the diff paints, and
-        // pulling further would sink it into the pane. 3.0 is the floor for a
-        // thing that is not text.
+        // The gutter's trio is pulled towards the pale rows the diff paints,
+        // and pulling further would sink it into the pane. 3.0 is the floor
+        // for a thing that is not text.
         for palette in [Palette::dark(), Palette::light()] {
-            for mark in [palette.map_removed, palette.map_added] {
+            for mark in [palette.map_removed, palette.map_added, palette.map_noted] {
                 let ratio = contrast(mark, palette.bg);
                 assert!(ratio >= 3.0, "a map mark at {ratio:.2}:1 is too faint");
             }

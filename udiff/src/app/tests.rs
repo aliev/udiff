@@ -2341,15 +2341,13 @@ fn the_map_is_one_unbroken_column_beside_the_scrollbar() {
         "an unchanged band is the bar, dimmed, not a gap in it"
     );
 
-    let note = notes
-        .iter()
-        .find(|cell| cell.symbol() == "\u{25c6}")
-        .expect("the note is marked beside the bar");
-    assert_eq!(note.fg, theme().comment);
-    assert_eq!(
-        notes.iter().filter(|c| c.symbol() == "\u{25c6}").count(),
-        1,
-        "one note, one mark"
+    assert!(
+        notes.iter().any(|cell| cell.fg == theme().map_noted),
+        "the note is marked beside the bar"
+    );
+    assert!(
+        notes.iter().all(|cell| cell.symbol() == "\u{2588}"),
+        "in the same unbroken column the map uses, not a glyph to be counted"
     );
 }
 
