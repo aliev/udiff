@@ -5,6 +5,8 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-09
+
 ### Added
 
 - Comments and suggestions are marked in the gutter, in a column beside the
@@ -165,7 +167,8 @@ All notable changes to μdiff are documented in this file. The project uses
   quiet-period batches and emits unified diffs.
 - Linux, macOS, and Windows CI builds.
 
-[Unreleased]: https://github.com/aliev/udiff/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/aliev/udiff/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/aliev/udiff/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/aliev/udiff/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/aliev/udiff/compare/v0.1.3...v0.2.0
 [0.1.3]: https://github.com/aliev/udiff/compare/v0.1.2...v0.1.3
