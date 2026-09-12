@@ -147,7 +147,10 @@ switches to it, `q` quits.
 
 Copying uses OSC 52, so the terminal has to allow clipboard access from programs.
 
-On a light terminal, set `UDIFF_THEME=light`. μdiff also honours `NO_COLOR`.
+μdiff asks the terminal what colour its background is and follows the answer.
+Set `UDIFF_THEME=light`, `dark` or `mono` to decide for it — inside tmux or
+screen, where the question cannot be asked, you will have to. `NO_COLOR` is
+honoured and outranks both.
 
 Feed μdiff an uncolored diff. Tools like `delta` emit terminal styling meant for
 human eyes, which μdiff cannot parse — pipe it the original `git diff` instead.

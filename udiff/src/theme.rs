@@ -16,6 +16,7 @@ pub(crate) enum Mode {
 pub(crate) fn resolve(
     no_color: Option<&str>,
     udiff_theme: Option<&str>,
+    queried_background: Option<(u8, u8, u8)>,
     colorfgbg: Option<&str>,
 ) -> Mode {
     // https://no-color.org: any non-empty value suppresses colour.
@@ -29,6 +30,16 @@ pub(crate) fn resolve(
         // An unreadable value is ignored rather than fatal: a typo in a shell
         // profile must not stop a review.
         _ => {}
+    }
+    // What the terminal itself just answered outranks COLORFGBG, which is a
+    // guess left in the environment — sometimes by a different terminal, and
+    // usually before the last time the theme changed.
+    if let Some(background) = queried_background {
+        return if crate::terminal_background::is_light(background) {
+            Mode::Light
+        } else {
+            Mode::Dark
+        };
     }
     // COLORFGBG is "foreground;background", sometimes with a middle field.
     // Colour indexes 7 and 15 are the light backgrounds.
@@ -218,11 +229,12 @@ impl Palette {
         }
     }
 
-    fn from_environment() -> Self {
+    fn from_environment(queried_background: Option<(u8, u8, u8)>) -> Self {
         let read = |name: &str| std::env::var(name).ok();
         Self::for_mode(resolve(
             read("NO_COLOR").as_deref(),
             read("UDIFF_THEME").as_deref(),
+            queried_background,
             read("COLORFGBG").as_deref(),
         ))
     }
@@ -232,8 +244,8 @@ static PALETTE: OnceLock<Palette> = OnceLock::new();
 
 /// Resolves the palette before anything can read it. Lazy initialisation would
 /// reach the same answer, but an explicit call keeps the ordering visible.
-pub(crate) fn init() {
-    let _ = PALETTE.set(Palette::from_environment());
+pub(crate) fn init(queried_background: Option<(u8, u8, u8)>) {
+    let _ = PALETTE.set(Palette::from_environment(queried_background));
 }
 
 pub(crate) fn theme() -> &'static Palette {
@@ -243,7 +255,7 @@ pub(crate) fn theme() -> &'static Palette {
         if cfg!(test) {
             Palette::for_mode(Mode::Dark)
         } else {
-            Palette::from_environment()
+            Palette::from_environment(None)
         }
     })
 }
@@ -294,32 +306,70 @@ mod tests {
 
     #[test]
     fn no_color_wins_over_every_other_signal() {
-        assert_eq!(resolve(Some("1"), Some("light"), Some("15;7")), Mode::Mono);
+        assert_eq!(
+            resolve(
+                Some("1"),
+                Some("light"),
+                Some((255, 255, 255)),
+                Some("15;7")
+            ),
+            Mode::Mono
+        );
+    }
+
+    #[test]
+    fn what_the_terminal_answers_outranks_what_the_environment_remembers() {
+        // COLORFGBG says light; the terminal in front of the reader is dark.
+        assert_eq!(
+            resolve(None, None, Some((30, 30, 46)), Some("0;15")),
+            Mode::Dark
+        );
+        assert_eq!(
+            resolve(None, None, Some((250, 250, 250)), Some("15;0")),
+            Mode::Light
+        );
+    }
+
+    #[test]
+    fn an_asked_for_theme_still_outranks_the_terminal() {
+        assert_eq!(
+            resolve(None, Some("light"), Some((0, 0, 0)), None),
+            Mode::Light
+        );
+    }
+
+    #[test]
+    fn a_silent_terminal_leaves_the_environment_to_decide() {
+        assert_eq!(resolve(None, None, None, Some("0;15")), Mode::Light);
+        assert_eq!(resolve(None, None, None, None), Mode::Dark);
     }
 
     #[test]
     fn an_empty_no_color_is_not_a_signal() {
-        assert_eq!(resolve(Some(""), Some("light"), None), Mode::Light);
+        assert_eq!(resolve(Some(""), Some("light"), None, None), Mode::Light);
     }
 
     #[test]
     fn an_unknown_theme_name_falls_through_instead_of_failing() {
-        assert_eq!(resolve(None, Some("solarized"), Some("15;7")), Mode::Light);
-        assert_eq!(resolve(None, Some("solarized"), None), Mode::Dark);
+        assert_eq!(
+            resolve(None, Some("solarized"), None, Some("15;7")),
+            Mode::Light
+        );
+        assert_eq!(resolve(None, Some("solarized"), None, None), Mode::Dark);
     }
 
     #[test]
     fn colorfgbg_reads_its_last_field_as_the_background() {
-        assert_eq!(resolve(None, None, Some("15;7")), Mode::Light);
-        assert_eq!(resolve(None, None, Some("0;15")), Mode::Light);
-        assert_eq!(resolve(None, None, Some("15;0")), Mode::Dark);
-        assert_eq!(resolve(None, None, Some("15;default")), Mode::Dark);
-        assert_eq!(resolve(None, None, Some("")), Mode::Dark);
+        assert_eq!(resolve(None, None, None, Some("15;7")), Mode::Light);
+        assert_eq!(resolve(None, None, None, Some("0;15")), Mode::Light);
+        assert_eq!(resolve(None, None, None, Some("15;0")), Mode::Dark);
+        assert_eq!(resolve(None, None, None, Some("15;default")), Mode::Dark);
+        assert_eq!(resolve(None, None, None, Some("")), Mode::Dark);
     }
 
     #[test]
     fn nothing_configured_means_dark() {
-        assert_eq!(resolve(None, None, None), Mode::Dark);
+        assert_eq!(resolve(None, None, None, None), Mode::Dark);
     }
 
     #[test]

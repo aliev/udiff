@@ -5,6 +5,18 @@ All notable changes to μdiff are documented in this file. The project uses
 
 ## [Unreleased]
 
+### Added
+
+- μdiff asks the terminal what colour its background actually is, with OSC 11,
+  and follows the answer. `COLORFGBG` is a guess left in the environment —
+  sometimes by a different terminal, usually before the last theme change — and
+  most terminals never set it at all, so a light terminal used to need
+  `UDIFF_THEME=light` to be told twice. An explicit `NO_COLOR` or `UDIFF_THEME`
+  still outranks the answer, a terminal that will not answer within a tenth of
+  a second is left alone, and inside tmux or screen the question is not asked
+  at all: it needs their passthrough, and without it the reply can come back as
+  a keystroke.
+
 ## [0.4.0] - 2026-09-09
 
 ### Added

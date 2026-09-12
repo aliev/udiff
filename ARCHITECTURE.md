@@ -48,6 +48,7 @@ You do not need to understand rendering before changing review behavior.
 |---|---|
 | Unified-diff parsing or line numbers | `udiff/src/model.rs` |
 | Colours, appearance modes, `NO_COLOR` | `udiff/src/theme.rs` |
+| Asking the terminal its background colour | `udiff/src/terminal_background.rs` |
 | Syntax highlighting | `udiff/src/highlight.rs` |
 | Comment/suggestion data or copied prompt format | `udiff/src/comment.rs` |
 | Create, edit, delete, or export review items | `udiff/src/app/review.rs` |

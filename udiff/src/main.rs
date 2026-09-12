@@ -4,6 +4,7 @@ mod highlight;
 mod input;
 mod model;
 mod terminal;
+mod terminal_background;
 mod theme;
 
 use anyhow::Result;
@@ -60,7 +61,7 @@ fn run() -> Result<i32> {
         println!("udiff {}", env!("CARGO_PKG_VERSION"));
         return Ok(0);
     }
-    theme::init();
+    theme::init(terminal_background::query());
     match mode {
         #[cfg(feature = "watch")]
         InputMode::Watch(root) => view_watch(root),
